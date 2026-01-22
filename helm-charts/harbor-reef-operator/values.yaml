@@ -1,0 +1,88 @@
+# -- Number of controller replicas
+replicaCount: 2
+
+image:
+  # -- Container image repository
+  repository: nvcr.io/harbor-reef-operator
+  # -- Container image tag to deploy
+  tag: "0.0.17"
+  # -- Image pull policy for the controller container
+  pullPolicy: IfNotPresent
+
+# -- List of imagePullSecrets used to pull the operator image (list of secret names)
+imagePullSecrets: []
+
+# -- Override the chart name
+nameOverride: ""
+# -- Override the full release name
+fullnameOverride: ""
+
+# -- ServiceAccount configuration
+serviceAccount:
+  # -- Create a ServiceAccount for the controller
+  create: true
+  # -- Annotations to add to the ServiceAccount
+  annotations: {}
+  # -- Name of the ServiceAccount to use. If not set, a name is generated
+  name: ""
+
+rbac:
+  # -- Create RBAC resources (ClusterRole, ClusterRoleBinding)
+  create: true
+
+# -- Annotations to add to the controller pod
+podAnnotations: {}
+
+metrics:
+  # -- Enable Prometheus metrics endpoint
+  enabled: true
+  # -- Port to expose metrics on
+  port: 8080
+
+# -- Leader election configuration
+leaderElection:
+  # -- Enable leader election to allow safe multi-replica deployments
+  enabled: true
+  # Timings follow k8s leaderelection best practices (LeaseDuration ≥ RenewDeadline ≥ RetryPeriod)
+  # -- Lease duration before leadership can be taken by another replica
+  leaseDuration: 30s
+  # -- Deadline for the current leader to renew the lease
+  renewDeadline: 15s
+  # -- Retry period for clients to try leader election actions
+  retryPeriod: 5s
+
+# -- Comma-separated list of namespaces to watch; empty means cluster-scoped cache
+watchNamespaces: ""
+
+# -- securityContext applied to the controller container
+containerSecurityContext:
+  # -- Require the container to run as non-root
+  runAsNonRoot: true
+  # -- User ID the container process runs as
+  runAsUser: 65532
+  # -- Disallow privilege escalation (recommended)
+  allowPrivilegeEscalation: false
+  # -- Mount the root filesystem as read-only
+  readOnlyRootFilesystem: true
+
+# -- Resource requests and limits for the controller container
+resources:
+  requests:
+    # -- Requested CPU for the controller container
+    cpu: 100m
+    # -- Requested memory for the controller container
+    memory: 64Mi
+  limits:
+    # -- CPU limit for the controller container
+    cpu: 200m
+    # -- Memory limit for the controller container
+    memory: 128Mi
+
+# -- Node selector labels for scheduling the controller pod
+nodeSelector: {}
+
+# -- Tolerations applied to the controller pod
+tolerations: []
+
+# -- Affinity rules for the controller pod
+affinity: {}
