@@ -1,6 +1,6 @@
 # harbor-reef-operator
 
-![Version: 0.1.11](https://img.shields.io/badge/Version-0.1.11-informational?style=flat-square) ![Type: application](https://img.shields.io/badge/Type-application-informational?style=flat-square) ![AppVersion: 0.0.17](https://img.shields.io/badge/AppVersion-0.0.17-informational?style=flat-square)
+![Version: 1.0.0](https://img.shields.io/badge/Version-1.0.0-informational?style=flat-square) ![Type: application](https://img.shields.io/badge/Type-application-informational?style=flat-square) ![AppVersion: 1.0.0](https://img.shields.io/badge/AppVersion-1.0.0-informational?style=flat-square)
 
 Minimal kubernetes operator to revert Harbor cache images to upstream on image pull errors
 
@@ -17,7 +17,7 @@ Minimal kubernetes operator to revert Harbor cache images to upstream on image p
 | fullnameOverride | string | `""` | Override the full release name |
 | image.pullPolicy | string | `"IfNotPresent"` | Image pull policy for the controller container |
 | image.repository | string | `"nvcr.io/nvidian/prodsec/harbor-reef-operator"` | Container image repository |
-| image.tag | string | `"0.0.17"` | Container image tag to deploy |
+| image.tag | string | `"1.0.0"` | Container image tag to deploy |
 | imagePullSecrets | list | `["ngc-pull-secret"]` | List of imagePullSecrets used to pull the operator image (list of secret names) |
 | leaderElection | object | `{"enabled":true,"leaseDuration":"30s","renewDeadline":"15s","retryPeriod":"5s"}` | Leader election configuration |
 | leaderElection.enabled | bool | `true` | Enable leader election to allow safe multi-replica deployments |

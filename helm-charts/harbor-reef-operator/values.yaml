@@ -5,7 +5,7 @@ image:
   # -- Container image repository
   repository: nvcr.io/nvidian/prodsec/harbor-reef-operator
   # -- Container image tag to deploy
-  tag: "0.0.17"
+  tag: "1.0.0"
   # -- Image pull policy for the controller container
   pullPolicy: IfNotPresent
 

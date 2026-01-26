@@ -2,5 +2,5 @@ apiVersion: v2
 name: harbor-reef-operator
 description: Minimal kubernetes operator to revert Harbor cache images to upstream on image pull errors
 type: application
-version: 0.1.11 # Helm chart version
-appVersion: "0.0.17" # App version should match the version in the VERSION file
+version: 1.0.0 # Helm chart version
+appVersion: "1.0.0" # App version should match the version in the VERSION file
