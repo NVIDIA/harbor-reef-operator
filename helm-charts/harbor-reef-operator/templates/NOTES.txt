@@ -1,0 +1,9 @@
+The harbor-reef-operator has been deployed into the {{ .Release.Namespace }} namespace.
+
+Key settings:
+- Image: {{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}
+- Metrics: {{ ternary "enabled" "disabled" .Values.metrics.enabled }}{{ if .Values.metrics.enabled }} (port {{ .Values.metrics.port }}){{ end }}
+- WatchNamespaces: {{- if .Values.watchNamespaces }} {{ .Values.watchNamespaces }}{{ else }} all namespaces{{ end }}
+
+To see logs:
+  kubectl logs -n {{ .Release.Namespace }} deploy/{{ include "harbor-reef-operator.fullname" . }} -c controller

@@ -1,0 +1,3 @@
+# CI configuration is sourced from template project.
+# See Settings > CI/CD > General pipelines > CI/CD Configuration file for source location
+.gitlab-ci.yml
