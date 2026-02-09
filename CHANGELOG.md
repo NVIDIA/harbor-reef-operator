@@ -11,6 +11,12 @@ MAJOR version when you make incompatible API changes,
 MINOR version when you add functionality in a backwards compatible manner, and
 PATCH version when you make backwards compatible bug fixes.
 
+## [1.0.0] - 2026-01-26
+
+### Added
+
+- First release
+
 ## [0.0.17] - 2026-01-22
 
 ### Added
