@@ -3,15 +3,14 @@ replicaCount: 2
 
 image:
   # -- Container image repository
-  repository: nvcr.io/nvidian/prodsec/harbor-reef-operator
+  repository: nvcr.io/nvidia/harbor-reef-operator
   # -- Container image tag to deploy
   tag: "1.0.0"
   # -- Image pull policy for the controller container
   pullPolicy: IfNotPresent
 
 # -- List of imagePullSecrets used to pull the operator image (list of secret names)
-imagePullSecrets:
-  - ngc-pull-secret
+imagePullSecrets: []
 
 # -- Override the chart name
 nameOverride: ""
@@ -80,15 +79,10 @@ resources:
     memory: 128Mi
 
 # -- Node selector labels for scheduling the controller pod
-nodeSelector:
-  CriticalAddonsOnly: "true"
+nodeSelector: {}
 
 # -- Tolerations applied to the controller pod
-tolerations:
-  - key: CriticalAddonsOnly
-    operator: Equal
-    value: "true"
-    effect: NoSchedule
+tolerations: []
 
 # -- Affinity rules for the controller pod
 affinity: {}
