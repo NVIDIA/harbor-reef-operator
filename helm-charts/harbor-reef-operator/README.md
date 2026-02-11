@@ -1,6 +1,6 @@
 # harbor-reef-operator
 
-![Version: 1.0.0](https://img.shields.io/badge/Version-1.0.0-informational?style=flat-square) ![Type: application](https://img.shields.io/badge/Type-application-informational?style=flat-square) ![AppVersion: 1.0.0](https://img.shields.io/badge/AppVersion-1.0.0-informational?style=flat-square)
+![Version: 1.0.1](https://img.shields.io/badge/Version-1.0.1-informational?style=flat-square) ![Type: application](https://img.shields.io/badge/Type-application-informational?style=flat-square) ![AppVersion: 1.0.0](https://img.shields.io/badge/AppVersion-1.0.0-informational?style=flat-square)
 
 Minimal kubernetes operator to revert Harbor cache images to upstream on image pull errors
 
@@ -16,9 +16,9 @@ Minimal kubernetes operator to revert Harbor cache images to upstream on image p
 | containerSecurityContext.runAsUser | int | `65532` | User ID the container process runs as |
 | fullnameOverride | string | `""` | Override the full release name |
 | image.pullPolicy | string | `"IfNotPresent"` | Image pull policy for the controller container |
-| image.repository | string | `"nvcr.io/nvidian/prodsec/harbor-reef-operator"` | Container image repository |
+| image.repository | string | `"nvcr.io/nvidia/harbor-reef-operator"` | Container image repository |
 | image.tag | string | `"1.0.0"` | Container image tag to deploy |
-| imagePullSecrets | list | `["ngc-pull-secret"]` | List of imagePullSecrets used to pull the operator image (list of secret names) |
+| imagePullSecrets | list | `[]` | List of imagePullSecrets used to pull the operator image (list of secret names) |
 | leaderElection | object | `{"enabled":true,"leaseDuration":"30s","renewDeadline":"15s","retryPeriod":"5s"}` | Leader election configuration |
 | leaderElection.enabled | bool | `true` | Enable leader election to allow safe multi-replica deployments |
 | leaderElection.leaseDuration | string | `"30s"` | Lease duration before leadership can be taken by another replica |
@@ -27,7 +27,7 @@ Minimal kubernetes operator to revert Harbor cache images to upstream on image p
 | metrics.enabled | bool | `true` | Enable Prometheus metrics endpoint |
 | metrics.port | int | `8080` | Port to expose metrics on |
 | nameOverride | string | `""` | Override the chart name |
-| nodeSelector | object | `{"CriticalAddonsOnly":"true"}` | Node selector labels for scheduling the controller pod |
+| nodeSelector | object | `{}` | Node selector labels for scheduling the controller pod |
 | podAnnotations | object | `{}` | Annotations to add to the controller pod |
 | rbac.create | bool | `true` | Create RBAC resources (ClusterRole, ClusterRoleBinding) |
 | replicaCount | int | `2` | Number of controller replicas |
@@ -40,7 +40,7 @@ Minimal kubernetes operator to revert Harbor cache images to upstream on image p
 | serviceAccount.annotations | object | `{}` | Annotations to add to the ServiceAccount |
 | serviceAccount.create | bool | `true` | Create a ServiceAccount for the controller |
 | serviceAccount.name | string | `""` | Name of the ServiceAccount to use. If not set, a name is generated |
-| tolerations | list | `[{"effect":"NoSchedule","key":"CriticalAddonsOnly","operator":"Equal","value":"true"}]` | Tolerations applied to the controller pod |
+| tolerations | list | `[]` | Tolerations applied to the controller pod |
 | watchNamespaces | string | `""` | Comma-separated list of namespaces to watch; empty means cluster-scoped cache |
 
 ----------------------------------------------

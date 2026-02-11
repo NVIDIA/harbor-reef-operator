@@ -11,6 +11,12 @@ MAJOR version when you make incompatible API changes,
 MINOR version when you add functionality in a backwards compatible manner, and
 PATCH version when you make backwards compatible bug fixes.
 
+## [1.0.1] - 2026-02-11
+
+### Changed
+
+- Update helm chart default values and use public ngc image
+
 ## [1.0.0] - 2026-01-26
 
 ### Added
