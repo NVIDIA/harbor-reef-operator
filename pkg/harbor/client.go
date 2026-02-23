@@ -55,7 +55,8 @@ type registryEntry struct {
 }
 
 type projectEntry struct {
-	ProjectID int `json:"project_id"`
+	ProjectID int    `json:"project_id"`
+	Name      string `json:"name"`
 }
 
 type projectPayload struct {
@@ -189,7 +190,7 @@ func (h *Client) projectExists(name string) (bool, error) {
 	}
 
 	for _, p := range projects {
-		if p.ProjectID > 0 {
+		if p.ProjectID > 0 && p.Name == name {
 			return true, nil
 		}
 	}

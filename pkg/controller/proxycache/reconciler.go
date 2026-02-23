@@ -235,10 +235,12 @@ func setCondition(pc *v1alpha1.ProxyCache, condType string, status metav1.Condit
 	now := metav1.Now()
 	for i, c := range pc.Status.Conditions {
 		if c.Type == condType {
+			if c.Status != status {
+				pc.Status.Conditions[i].LastTransitionTime = now
+			}
 			pc.Status.Conditions[i].Status = status
 			pc.Status.Conditions[i].Reason = reason
 			pc.Status.Conditions[i].Message = message
-			pc.Status.Conditions[i].LastTransitionTime = now
 			pc.Status.Conditions[i].ObservedGeneration = pc.Generation
 			return
 		}

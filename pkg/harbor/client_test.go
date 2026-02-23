@@ -137,7 +137,7 @@ func TestEnsureRegistryEndpoint_CreateFails(t *testing.T) {
 func TestEnsureProxyProject_AlreadyExists(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == http.MethodGet && r.URL.Path == "/api/v2.0/projects" {
-			json.NewEncoder(w).Encode([]projectEntry{{ProjectID: 10}})
+			json.NewEncoder(w).Encode([]projectEntry{{ProjectID: 10, Name: "proxy-k8s"}})
 			return
 		}
 		http.Error(w, "unexpected call", http.StatusInternalServerError)
@@ -148,6 +148,32 @@ func TestEnsureProxyProject_AlreadyExists(t *testing.T) {
 	err := hc.EnsureProxyProject("proxy-k8s", 42, true)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestEnsureProxyProject_FuzzyMatchIgnored(t *testing.T) {
+	var created bool
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet && r.URL.Path == "/api/v2.0/projects" {
+			json.NewEncoder(w).Encode([]projectEntry{{ProjectID: 10, Name: "proxy-k8s-extra"}})
+			return
+		}
+		if r.Method == http.MethodPost && r.URL.Path == "/api/v2.0/projects" {
+			created = true
+			w.WriteHeader(http.StatusCreated)
+			return
+		}
+		http.Error(w, "unexpected call", http.StatusInternalServerError)
+	}))
+	defer srv.Close()
+
+	hc := NewClient(srv.URL, "admin", "pass")
+	err := hc.EnsureProxyProject("proxy-k8s", 42, true)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !created {
+		t.Error("expected project to be created when only a fuzzy match exists")
 	}
 }
 
