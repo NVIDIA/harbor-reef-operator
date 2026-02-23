@@ -8,6 +8,7 @@ ARG TARGETARCH
 COPY go.mod go.sum ./
 RUN go mod download
 COPY main.go ./
+COPY pkg/ pkg/
 
 RUN CGO_ENABLED=0 GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH:-amd64} go build -ldflags='-s -w' -o /out/controller ./
 

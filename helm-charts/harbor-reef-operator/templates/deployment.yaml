@@ -54,6 +54,18 @@ spec:
             - name: WATCH_NAMESPACE
               value: {{ .Values.watchNamespaces | quote }}
             {{- end }}
+            {{- if .Values.harbor.url }}
+            - name: HARBOR_URL
+              value: {{ .Values.harbor.url | quote }}
+            {{- end }}
+            {{- if .Values.harbor.adminSecret }}
+            - name: HARBOR_ADMIN_SECRET
+              value: {{ .Values.harbor.adminSecret | quote }}
+            {{- end }}
+            {{- if .Values.harbor.adminSecretKey }}
+            - name: HARBOR_ADMIN_SECRET_KEY
+              value: {{ .Values.harbor.adminSecretKey | quote }}
+            {{- end }}
           {{- if .Values.metrics.enabled }}
           ports:
             - name: metrics

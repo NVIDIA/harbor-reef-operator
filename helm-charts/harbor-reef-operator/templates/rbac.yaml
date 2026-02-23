@@ -28,6 +28,15 @@ rules:
   - apiGroups: ["coordination.k8s.io"]
     resources: ["leases"]
     verbs: ["get","list","watch","create","update","patch"]
+  - apiGroups: ["harbor-reef.nvidia.com"]
+    resources: ["proxycaches"]
+    verbs: ["get","list","watch","patch"]
+  - apiGroups: ["harbor-reef.nvidia.com"]
+    resources: ["proxycaches/status"]
+    verbs: ["get","patch","update"]
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["get","list","watch"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding

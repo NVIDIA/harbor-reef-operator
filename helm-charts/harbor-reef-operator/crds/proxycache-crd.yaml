@@ -1,0 +1,135 @@
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: proxycaches.harbor-reef.nvidia.com
+spec:
+  group: harbor-reef.nvidia.com
+  names:
+    kind: ProxyCache
+    listKind: ProxyCacheList
+    plural: proxycaches
+    singular: proxycache
+    shortNames:
+      - hpc
+  scope: Cluster
+  versions:
+    - name: v1alpha1
+      served: true
+      storage: true
+      additionalPrinterColumns:
+        - name: Type
+          type: string
+          jsonPath: .spec.type
+        - name: Phase
+          type: string
+          jsonPath: .status.phase
+        - name: Age
+          type: date
+          jsonPath: .metadata.creationTimestamp
+      subresources:
+        status: {}
+      schema:
+        openAPIV3Schema:
+          type: object
+          required:
+            - spec
+          properties:
+            spec:
+              type: object
+              required:
+                - type
+                - name
+              properties:
+                type:
+                  type: string
+                  description: "Type of upstream registry: public, private, or aws-ecr-private."
+                  enum:
+                    - public
+                    - private
+                    - aws-ecr-private
+                name:
+                  type: string
+                  description: "Name used for both the Harbor registry endpoint and the proxy project."
+                url:
+                  type: string
+                  description: "URL of the upstream registry (not required for aws-ecr-private)."
+                credentials:
+                  type: object
+                  description: "Credentials for private registry authentication."
+                  required:
+                    - secretName
+                  properties:
+                    secretName:
+                      type: string
+                      description: "Name of the Secret containing the registry credentials."
+                    usernameKey:
+                      type: string
+                      description: "Key within the Secret for the username. Defaults to 'username'."
+                      default: username
+                    passwordKey:
+                      type: string
+                      description: "Key within the Secret for the password. Defaults to 'password'."
+                      default: password
+                ecr:
+                  type: object
+                  description: "AWS ECR-specific configuration."
+                  required:
+                    - accountId
+                    - staticCredentialsSecretName
+                  properties:
+                    accountId:
+                      type: string
+                      description: "AWS account ID that owns the ECR registry."
+                    region:
+                      type: string
+                      description: "AWS region for the ECR registry."
+                    staticCredentialsSecretName:
+                      type: string
+                      description: "Name of the Secret containing ECR static credentials (keys: access_key_id, secret_access_key)."
+            status:
+              type: object
+              properties:
+                phase:
+                  type: string
+                  description: "Phase of the proxy cache: Pending, Ready, or Error."
+                registryId:
+                  type: integer
+                  description: "Harbor registry endpoint ID."
+                projectCreated:
+                  type: boolean
+                  description: "Whether the Harbor proxy project has been created."
+                message:
+                  type: string
+                  description: "Human-readable message with details about the current phase."
+                lastReconciled:
+                  type: string
+                  format: date-time
+                  description: "Timestamp of the last successful reconciliation."
+                conditions:
+                  type: array
+                  items:
+                    type: object
+                    required:
+                      - type
+                      - status
+                      - lastTransitionTime
+                      - reason
+                    properties:
+                      type:
+                        type: string
+                      status:
+                        type: string
+                        enum:
+                          - "True"
+                          - "False"
+                          - "Unknown"
+                      lastTransitionTime:
+                        type: string
+                        format: date-time
+                      reason:
+                        type: string
+                      message:
+                        type: string
+                      observedGeneration:
+                        type: integer
+                        format: int64

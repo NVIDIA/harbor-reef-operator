@@ -54,6 +54,17 @@ leaderElection:
 # -- Comma-separated list of namespaces to watch; empty means cluster-scoped cache
 watchNamespaces: ""
 
+# -- Harbor connection settings for the ProxyCache controller.
+# When harbor.url is set, the operator watches ProxyCache CRDs and ensures
+# the corresponding registry endpoints and proxy projects exist in Harbor.
+harbor:
+  # -- Internal URL of the Harbor Core service (e.g., http://harbor-core.harbor.svc)
+  url: ""
+  # -- Name of the Kubernetes Secret containing the Harbor admin password
+  adminSecret: "harbor-admin-password"
+  # -- Key within the admin secret that holds the password
+  adminSecretKey: "HARBOR_ADMIN_PASSWORD"
+
 # -- securityContext applied to the controller container
 containerSecurityContext:
   # -- Require the container to run as non-root
