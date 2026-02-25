@@ -151,6 +151,41 @@ func (h *Client) EnsureProxyProject(name string, registryID int, public bool) er
 	return nil
 }
 
+// DeleteProject deletes a Harbor project by name.
+// Returns nil if the project does not exist (idempotent).
+func (h *Client) DeleteProject(name string) error {
+	path := fmt.Sprintf("/api/v2.0/projects/%s", url.PathEscape(name))
+	code, body, err := h.doRequest(http.MethodDelete, path, nil)
+	if err != nil {
+		return fmt.Errorf("deleting project %q: %w", name, err)
+	}
+	if code == http.StatusOK || code == http.StatusNotFound {
+		return nil
+	}
+	return fmt.Errorf("deleting project %q: HTTP %d: %s", name, code, string(body))
+}
+
+// DeleteRegistryEndpoint deletes a Harbor registry endpoint by name.
+// Returns nil if the registry does not exist (idempotent).
+func (h *Client) DeleteRegistryEndpoint(name string) error {
+	id, err := h.findRegistry(name)
+	if err != nil {
+		return fmt.Errorf("looking up registry %q for deletion: %w", name, err)
+	}
+	if id == 0 {
+		return nil
+	}
+	path := fmt.Sprintf("/api/v2.0/registries/%d", id)
+	code, body, err := h.doRequest(http.MethodDelete, path, nil)
+	if err != nil {
+		return fmt.Errorf("deleting registry %q (id=%d): %w", name, id, err)
+	}
+	if code == http.StatusOK || code == http.StatusNotFound {
+		return nil
+	}
+	return fmt.Errorf("deleting registry %q (id=%d): HTTP %d: %s", name, id, code, string(body))
+}
+
 func (h *Client) findRegistry(name string) (int, error) {
 	path := fmt.Sprintf("/api/v2.0/registries?name=%s&page_size=100", url.QueryEscape(name))
 	code, body, err := h.doRequest(http.MethodGet, path, nil)

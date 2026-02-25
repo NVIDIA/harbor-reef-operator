@@ -14,6 +14,7 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	v1alpha1 "harbor-reef-operator/pkg/apis/v1alpha1"
@@ -22,6 +23,7 @@ import (
 
 const (
 	requeueOnError = 30 * time.Second
+	finalizerName  = "harbor-reef.nvidia.com/proxycache-finalizer"
 )
 
 // Reconciler watches ProxyCache CRs and ensures the corresponding
@@ -61,8 +63,36 @@ func (r *Reconciler) Reconcile(ctx context.Context, req reconcile.Request) (reco
 		return reconcile.Result{}, client.IgnoreNotFound(err)
 	}
 
+	// Handle deletion: clean up Harbor resources before allowing GC.
 	if pc.DeletionTimestamp != nil {
+		if !controllerutil.ContainsFinalizer(&pc, finalizerName) {
+			return reconcile.Result{}, nil
+		}
+		logger.Info("ProxyCache being deleted, cleaning up Harbor resources")
+		adminPass, err := r.readSecretKey(ctx, r.HarborAdminSecret, r.HarborAdminSecretKey)
+		if err != nil {
+			return reconcile.Result{RequeueAfter: requeueOnError},
+				fmt.Errorf("reading harbor admin secret for cleanup: %w", err)
+		}
+		hc := harbor.NewClient(r.HarborURL, "admin", adminPass)
+		if err := deleteHarborResources(ctx, &pc, hc); err != nil {
+			return reconcile.Result{RequeueAfter: requeueOnError},
+				fmt.Errorf("deleting harbor resources for %q: %w", pc.Spec.Name, err)
+		}
+		controllerutil.RemoveFinalizer(&pc, finalizerName)
+		if err := r.client.Update(ctx, &pc); err != nil {
+			return reconcile.Result{}, err
+		}
+		logger.Info("Finalizer removed, Harbor resources cleaned up")
 		return reconcile.Result{}, nil
+	}
+
+	// Ensure our finalizer is present before proceeding.
+	if !controllerutil.ContainsFinalizer(&pc, finalizerName) {
+		controllerutil.AddFinalizer(&pc, finalizerName)
+		if err := r.client.Update(ctx, &pc); err != nil {
+			return reconcile.Result{}, err
+		}
 	}
 
 	adminPass, err := r.readSecretKey(ctx, r.HarborAdminSecret, r.HarborAdminSecretKey)
@@ -229,6 +259,18 @@ func (r *Reconciler) setErrorStatus(ctx context.Context, pc *v1alpha1.ProxyCache
 		ctrl.Log.Error(err, "Failed to update ProxyCache error status", "name", pc.Name)
 	}
 	return reconcile.Result{RequeueAfter: requeueOnError}, fmt.Errorf("%s", message)
+}
+
+// deleteHarborResources removes the proxy project and registry endpoint from
+// Harbor. Both calls are idempotent: already-absent resources are not errors.
+func deleteHarborResources(_ context.Context, pc *v1alpha1.ProxyCache, hc *harbor.Client) error {
+	if err := hc.DeleteProject(pc.Spec.Name); err != nil {
+		return fmt.Errorf("deleting proxy project %q: %w", pc.Spec.Name, err)
+	}
+	if err := hc.DeleteRegistryEndpoint(pc.Spec.Name); err != nil {
+		return fmt.Errorf("deleting registry endpoint %q: %w", pc.Spec.Name, err)
+	}
+	return nil
 }
 
 func setCondition(pc *v1alpha1.ProxyCache, condType string, status metav1.ConditionStatus, reason, message string) {

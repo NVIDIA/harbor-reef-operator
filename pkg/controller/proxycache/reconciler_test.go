@@ -8,12 +8,14 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	v1alpha1 "harbor-reef-operator/pkg/apis/v1alpha1"
 	"harbor-reef-operator/pkg/harbor"
 
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/types"
@@ -59,6 +61,23 @@ func newFakeHarborServer(t *testing.T) *httptest.Server {
 			json.NewEncoder(w).Encode([]projectEntry{})
 		case r.Method == http.MethodPost && r.URL.Path == "/api/v2.0/projects":
 			w.WriteHeader(http.StatusCreated)
+		default:
+			t.Errorf("unexpected request: %s %s", r.Method, r.URL.Path)
+			http.Error(w, "unexpected", http.StatusInternalServerError)
+		}
+	}))
+}
+
+func newFakeHarborServerForDelete(t *testing.T) *httptest.Server {
+	t.Helper()
+	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == "/api/v2.0/registries":
+			json.NewEncoder(w).Encode([]registryEntry{{ID: 42, Name: r.URL.Query().Get("name")}})
+		case r.Method == http.MethodDelete && strings.HasPrefix(r.URL.Path, "/api/v2.0/projects/"):
+			w.WriteHeader(http.StatusOK)
+		case r.Method == http.MethodDelete && strings.HasPrefix(r.URL.Path, "/api/v2.0/registries/"):
+			w.WriteHeader(http.StatusOK)
 		default:
 			t.Errorf("unexpected request: %s %s", r.Method, r.URL.Path)
 			http.Error(w, "unexpected", http.StatusInternalServerError)
@@ -241,13 +260,25 @@ func TestReconciler_UnknownType(t *testing.T) {
 }
 
 func TestReconciler_DeletionTimestamp(t *testing.T) {
+	srv := newFakeHarborServerForDelete(t)
+	defer srv.Close()
+
 	now := metav1.Now()
 	pc := &v1alpha1.ProxyCache{
-		ObjectMeta: metav1.ObjectMeta{Name: "proxy-deleting", DeletionTimestamp: &now, Finalizers: []string{"test-finalizer"}},
-		Spec:       v1alpha1.ProxyCacheSpec{Type: "public", Name: "proxy-deleting", URL: "https://registry.k8s.io"},
+		ObjectMeta: metav1.ObjectMeta{
+			Name:              "proxy-deleting",
+			DeletionTimestamp: &now,
+			Finalizers:        []string{finalizerName},
+		},
+		Spec: v1alpha1.ProxyCacheSpec{Type: "public", Name: "proxy-deleting", URL: "https://registry.k8s.io"},
 	}
-	cl := fake.NewClientBuilder().WithScheme(testScheme).WithObjects(pc).Build()
-	r := NewReconciler(cl, "http://localhost", "harbor-admin-password", "HARBOR_ADMIN_PASSWORD", "harbor")
+	adminSecret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{Name: "harbor-admin-password", Namespace: "harbor"},
+		Data:       map[string][]byte{"HARBOR_ADMIN_PASSWORD": []byte("admin123")},
+	}
+
+	cl := fake.NewClientBuilder().WithScheme(testScheme).WithObjects(pc, adminSecret).Build()
+	r := NewReconciler(cl, srv.URL, "harbor-admin-password", "HARBOR_ADMIN_PASSWORD", "harbor")
 
 	result, err := r.Reconcile(context.Background(), reconcile.Request{NamespacedName: types.NamespacedName{Name: "proxy-deleting"}})
 	if err != nil {
@@ -255,6 +286,72 @@ func TestReconciler_DeletionTimestamp(t *testing.T) {
 	}
 	if result.RequeueAfter != 0 {
 		t.Errorf("expected no requeue, got %v", result.RequeueAfter)
+	}
+
+	// The fake client simulates K8s GC: once the last finalizer is removed
+	// from an object with a DeletionTimestamp, the object is deleted.
+	var updated v1alpha1.ProxyCache
+	err = cl.Get(context.Background(), types.NamespacedName{Name: "proxy-deleting"}, &updated)
+	if !apierrors.IsNotFound(err) {
+		t.Fatalf("expected object to be garbage-collected after finalizer removal, got err=%v", err)
+	}
+}
+
+func TestReconciler_DeletionWithoutFinalizer(t *testing.T) {
+	now := metav1.Now()
+	pc := &v1alpha1.ProxyCache{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:              "proxy-no-fin",
+			DeletionTimestamp: &now,
+			Finalizers:        []string{"some-other-finalizer"},
+		},
+		Spec: v1alpha1.ProxyCacheSpec{Type: "public", Name: "proxy-no-fin", URL: "https://registry.k8s.io"},
+	}
+	cl := fake.NewClientBuilder().WithScheme(testScheme).WithObjects(pc).Build()
+	r := NewReconciler(cl, "http://localhost", "harbor-admin-password", "HARBOR_ADMIN_PASSWORD", "harbor")
+
+	result, err := r.Reconcile(context.Background(), reconcile.Request{NamespacedName: types.NamespacedName{Name: "proxy-no-fin"}})
+	if err != nil {
+		t.Fatalf("expected nil error when finalizer not present, got: %v", err)
+	}
+	if result.RequeueAfter != 0 {
+		t.Errorf("expected no requeue, got %v", result.RequeueAfter)
+	}
+}
+
+func TestReconciler_AddsFinalizer(t *testing.T) {
+	srv := newFakeHarborServer(t)
+	defer srv.Close()
+
+	pc := &v1alpha1.ProxyCache{
+		ObjectMeta: metav1.ObjectMeta{Name: "proxy-fin"},
+		Spec:       v1alpha1.ProxyCacheSpec{Type: "public", Name: "proxy-fin", URL: "https://registry.k8s.io"},
+	}
+	adminSecret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{Name: "harbor-admin-password", Namespace: "harbor"},
+		Data:       map[string][]byte{"HARBOR_ADMIN_PASSWORD": []byte("admin123")},
+	}
+
+	cl := fake.NewClientBuilder().WithScheme(testScheme).WithObjects(pc, adminSecret).WithStatusSubresource(pc).Build()
+	r := NewReconciler(cl, srv.URL, "harbor-admin-password", "HARBOR_ADMIN_PASSWORD", "harbor")
+
+	if _, err := r.Reconcile(context.Background(), reconcile.Request{NamespacedName: types.NamespacedName{Name: "proxy-fin"}}); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	var updated v1alpha1.ProxyCache
+	if err := cl.Get(context.Background(), types.NamespacedName{Name: "proxy-fin"}, &updated); err != nil {
+		t.Fatalf("failed to get: %v", err)
+	}
+	found := false
+	for _, f := range updated.Finalizers {
+		if f == finalizerName {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Error("expected finalizer to be added to ProxyCache")
 	}
 }
 
