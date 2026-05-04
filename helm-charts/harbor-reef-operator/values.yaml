@@ -9,7 +9,8 @@ image:
   # -- Image pull policy for the controller container
   pullPolicy: IfNotPresent
 
-# -- imagePullSecrets used to pull the operator image (Kubernetes native form, e.g. `- name: my-secret`)
+# -- imagePullSecrets used to pull the operator image. Accepts either a list of
+# secret names (e.g. `- my-secret`) or the Kubernetes-native form (e.g. `- name: my-secret`).
 imagePullSecrets: []
 
 # -- Override the chart name

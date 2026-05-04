@@ -29,7 +29,13 @@ spec:
       {{- end }}
       {{- with .Values.imagePullSecrets }}
       imagePullSecrets:
-        {{- toYaml . | nindent 8 }}
+        {{- range . }}
+        {{- if kindIs "string" . }}
+        - name: {{ . | quote }}
+        {{- else }}
+        - {{- toYaml . | nindent 10 }}
+        {{- end }}
+        {{- end }}
       {{- end }}
       containers:
         - name: controller
