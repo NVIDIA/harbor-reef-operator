@@ -187,8 +187,9 @@ The controller reads Harbor connection details from environment variables:
 | `HARBOR_URL` | Harbor Core internal URL (e.g., `http://harbor-core.harbor.svc`) | *(empty -- controller disabled)* |
 | `HARBOR_ADMIN_SECRET` | Name of the K8s Secret containing the Harbor admin password | `harbor-admin-password` |
 | `HARBOR_ADMIN_SECRET_KEY` | Key within the secret that holds the password | `HARBOR_ADMIN_PASSWORD` |
+| `HARBOR_RETAIN_ON_DELETE` | When `true`, deleting a `ProxyCache` CR removes the finalizer without touching Harbor (registry endpoint, project, and cached repositories are preserved). | `false` (cascade delete) |
 
-Credential secrets referenced by `private` and `aws-ecr-private` ProxyCache resources are looked up in the operator's own namespace (`POD_NAMESPACE`).
+Credential secrets referenced by `private` and `aws-ecr-private` ProxyCache resources are looked up in the operator's own namespace (`POD_NAMESPACE`). The controller watches Secrets in that namespace so creating or updating a referenced credential secret -- or the Harbor admin secret -- auto-reconciles the affected ProxyCache(s) without waiting for the requeue tick.
 
 ### Reconciliation flow
 
@@ -202,6 +203,19 @@ Credential secrets referenced by `private` and `aws-ecr-private` ProxyCache reso
 5. On error, set `phase: Error` with a descriptive message and requeue after 30 seconds.
 
 All Harbor API calls are idempotent -- existing endpoints and projects are detected and skipped.
+
+### Deletion
+
+ProxyCache resources carry the `harbor-reef.nvidia.com/proxycache-finalizer` finalizer so the operator can clean up Harbor state before the CR is garbage-collected.
+
+By default (`HARBOR_RETAIN_ON_DELETE=false`), `kubectl delete proxycache` triggers a cascade:
+
+1. Empty the proxy project by deleting every cached repository (Harbor refuses to delete a project that still contains repositories).
+2. Delete the proxy project.
+3. Delete the registry endpoint.
+4. Remove the finalizer.
+
+When `HARBOR_RETAIN_ON_DELETE=true`, the operator skips steps 1--3 entirely. The finalizer is still removed so the CR can be GC'd, but the Harbor registry endpoint, project, and any cached repositories are preserved for manual cleanup or reuse. Useful when retiring an operator deployment without nuking shared Harbor state.
 
 ### Status
 
