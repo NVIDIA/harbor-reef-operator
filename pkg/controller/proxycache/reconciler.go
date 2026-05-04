@@ -15,6 +15,7 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
+	"sigs.k8s.io/controller-runtime/pkg/handler"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
 	v1alpha1 "harbor-reef-operator/pkg/apis/v1alpha1"
@@ -53,11 +54,58 @@ func NewReconciler(c client.Client, harborURL, adminSecret, adminSecretKey, secr
 	}
 }
 
-// SetupWithManager registers the proxycache controller with the manager.
+// SetupWithManager registers the proxycache controller with the manager. It
+// also watches Secrets in the operator's namespace so that creating or
+// updating a referenced credential secret (or the Harbor admin secret) will
+// auto-reconcile the affected ProxyCache(s) without waiting for the next
+// requeue.
 func (r *Reconciler) SetupWithManager(mgr ctrl.Manager) error {
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&v1alpha1.ProxyCache{}).
+		Watches(
+			&corev1.Secret{},
+			handler.EnqueueRequestsFromMapFunc(r.proxyCachesForSecret),
+		).
 		Complete(r)
+}
+
+// proxyCachesForSecret maps a Secret event to the set of ProxyCache reconcile
+// requests it affects. Updates to the Harbor admin secret enqueue every
+// ProxyCache; updates to a private/ECR credential secret enqueue only the
+// ProxyCaches that reference it.
+func (r *Reconciler) proxyCachesForSecret(ctx context.Context, obj client.Object) []reconcile.Request {
+	secret, ok := obj.(*corev1.Secret)
+	if !ok || secret.Namespace != r.SecretNamespace {
+		return nil
+	}
+
+	var list v1alpha1.ProxyCacheList
+	if err := r.client.List(ctx, &list); err != nil {
+		ctrl.Log.Error(err, "Listing ProxyCaches for secret event", "secret", secret.Name)
+		return nil
+	}
+
+	isAdmin := secret.Name == r.HarborAdminSecret
+	var requests []reconcile.Request
+	for i := range list.Items {
+		pc := &list.Items[i]
+		if isAdmin || referencesSecret(pc, secret.Name) {
+			requests = append(requests, reconcile.Request{
+				NamespacedName: types.NamespacedName{Name: pc.Name},
+			})
+		}
+	}
+	return requests
+}
+
+func referencesSecret(pc *v1alpha1.ProxyCache, secretName string) bool {
+	if pc.Spec.Credentials != nil && pc.Spec.Credentials.SecretName == secretName {
+		return true
+	}
+	if pc.Spec.ECR != nil && pc.Spec.ECR.StaticCredentialsSecretName == secretName {
+		return true
+	}
+	return false
 }
 
 func (r *Reconciler) Reconcile(ctx context.Context, req reconcile.Request) (reconcile.Result, error) {
@@ -130,7 +178,6 @@ func (r *Reconciler) Reconcile(ctx context.Context, req reconcile.Request) (reco
 	}
 
 	if err != nil {
-		logger.Error(err, "Failed to reconcile proxy cache")
 		return r.setErrorStatus(ctx, &pc, err.Error())
 	}
 
@@ -264,10 +311,16 @@ func (r *Reconciler) setErrorStatus(ctx context.Context, pc *v1alpha1.ProxyCache
 
 	setCondition(pc, "Ready", metav1.ConditionFalse, "ReconcileError", message)
 
+	ctrl.Log.Info("ProxyCache reconcile error", "proxycache", pc.Name, "error", message)
+
 	if err := r.client.Status().Update(ctx, pc); err != nil {
 		ctrl.Log.Error(err, "Failed to update ProxyCache error status", "name", pc.Name)
 	}
-	return reconcile.Result{RequeueAfter: requeueOnError}, fmt.Errorf("%s", message)
+	// Returning nil error so controller-runtime honors RequeueAfter instead of
+	// applying exponential backoff. The watch on referenced Secrets means most
+	// errors caused by missing/bad credentials will be retried as soon as the
+	// secret is created or updated, without waiting for this requeue.
+	return reconcile.Result{RequeueAfter: requeueOnError}, nil
 }
 
 // deleteHarborResources removes cached repositories, the proxy project, and

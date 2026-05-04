@@ -250,8 +250,8 @@ func TestReconciler_MissingAdminSecret(t *testing.T) {
 	r := NewReconciler(cl, "http://localhost:8080", "missing-secret", "HARBOR_ADMIN_PASSWORD", "harbor")
 
 	result, err := r.Reconcile(context.Background(), reconcile.Request{NamespacedName: types.NamespacedName{Name: "proxy-test"}})
-	if err == nil {
-		t.Fatal("expected error for missing admin secret, got nil")
+	if err != nil {
+		t.Fatalf("expected nil error so RequeueAfter is honored, got: %v", err)
 	}
 	if result.RequeueAfter != requeueOnError {
 		t.Errorf("expected requeue after %v, got %v", requeueOnError, result.RequeueAfter)
@@ -278,9 +278,20 @@ func TestReconciler_UnknownType(t *testing.T) {
 	cl := fake.NewClientBuilder().WithScheme(testScheme).WithObjects(pc, adminSecret).WithStatusSubresource(pc).Build()
 	r := NewReconciler(cl, "http://localhost:8080", "harbor-admin-password", "HARBOR_ADMIN_PASSWORD", "harbor")
 
-	_, err := r.Reconcile(context.Background(), reconcile.Request{NamespacedName: types.NamespacedName{Name: "proxy-unknown"}})
-	if err == nil {
-		t.Fatal("expected error for unknown type, got nil")
+	result, err := r.Reconcile(context.Background(), reconcile.Request{NamespacedName: types.NamespacedName{Name: "proxy-unknown"}})
+	if err != nil {
+		t.Fatalf("expected nil error, got: %v", err)
+	}
+	if result.RequeueAfter != requeueOnError {
+		t.Errorf("expected requeue after %v, got %v", requeueOnError, result.RequeueAfter)
+	}
+
+	var updated v1alpha1.ProxyCache
+	if err := cl.Get(context.Background(), types.NamespacedName{Name: "proxy-unknown"}, &updated); err != nil {
+		t.Fatalf("failed to get: %v", err)
+	}
+	if updated.Status.Phase != "Error" {
+		t.Errorf("expected phase=Error, got %q", updated.Status.Phase)
 	}
 }
 
@@ -455,6 +466,84 @@ func TestReconciler_AddsFinalizer(t *testing.T) {
 	}
 	if !found {
 		t.Error("expected finalizer to be added to ProxyCache")
+	}
+}
+
+func TestProxyCachesForSecret(t *testing.T) {
+	pcA := &v1alpha1.ProxyCache{
+		ObjectMeta: metav1.ObjectMeta{Name: "proxy-a"},
+		Spec: v1alpha1.ProxyCacheSpec{
+			Type: "private", Name: "proxy-a", URL: "https://nvcr.io",
+			Credentials: &v1alpha1.CredentialSpec{SecretName: "ngc-creds"},
+		},
+	}
+	pcB := &v1alpha1.ProxyCache{
+		ObjectMeta: metav1.ObjectMeta{Name: "proxy-b"},
+		Spec: v1alpha1.ProxyCacheSpec{
+			Type: "aws-ecr-private", Name: "proxy-b",
+			ECR: &v1alpha1.ECRSpec{AccountID: "1", StaticCredentialsSecretName: "ecr-creds"},
+		},
+	}
+	pcC := &v1alpha1.ProxyCache{
+		ObjectMeta: metav1.ObjectMeta{Name: "proxy-c"},
+		Spec:       v1alpha1.ProxyCacheSpec{Type: "public", Name: "proxy-c", URL: "https://gcr.io"},
+	}
+
+	cl := fake.NewClientBuilder().WithScheme(testScheme).WithObjects(pcA, pcB, pcC).Build()
+	r := NewReconciler(cl, "http://h", "harbor-admin-password", "HARBOR_ADMIN_PASSWORD", "harbor")
+
+	cases := []struct {
+		name       string
+		secret     *corev1.Secret
+		wantNames  []string
+	}{
+		{
+			name:      "admin secret enqueues all proxycaches",
+			secret:    &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: "harbor-admin-password", Namespace: "harbor"}},
+			wantNames: []string{"proxy-a", "proxy-b", "proxy-c"},
+		},
+		{
+			name:      "private credential secret enqueues only matching CR",
+			secret:    &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: "ngc-creds", Namespace: "harbor"}},
+			wantNames: []string{"proxy-a"},
+		},
+		{
+			name:      "ecr credential secret enqueues only matching CR",
+			secret:    &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: "ecr-creds", Namespace: "harbor"}},
+			wantNames: []string{"proxy-b"},
+		},
+		{
+			name:      "unrelated secret enqueues nothing",
+			secret:    &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: "other", Namespace: "harbor"}},
+			wantNames: nil,
+		},
+		{
+			name:      "secret in wrong namespace enqueues nothing",
+			secret:    &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: "ngc-creds", Namespace: "elsewhere"}},
+			wantNames: nil,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := r.proxyCachesForSecret(context.Background(), tc.secret)
+			gotNames := make([]string, 0, len(got))
+			for _, req := range got {
+				gotNames = append(gotNames, req.Name)
+			}
+			if len(gotNames) != len(tc.wantNames) {
+				t.Fatalf("got %d requests, want %d: got=%v want=%v", len(gotNames), len(tc.wantNames), gotNames, tc.wantNames)
+			}
+			gotSet := map[string]bool{}
+			for _, n := range gotNames {
+				gotSet[n] = true
+			}
+			for _, want := range tc.wantNames {
+				if !gotSet[want] {
+					t.Errorf("missing expected request %q in %v", want, gotNames)
+				}
+			}
+		})
 	}
 }
 
