@@ -1,0 +1,8 @@
+apiVersion: harbor-reef.nvidia.com/v1alpha1
+kind: ProxyCache
+metadata:
+  name: proxy-gcr
+spec:
+  type: public
+  name: proxy-gcr
+  url: https://gcr.io

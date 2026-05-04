@@ -9,7 +9,7 @@ image:
   # -- Image pull policy for the controller container
   pullPolicy: IfNotPresent
 
-# -- List of imagePullSecrets used to pull the operator image (list of secret names)
+# -- imagePullSecrets used to pull the operator image (Kubernetes native form, e.g. `- name: my-secret`)
 imagePullSecrets: []
 
 # -- Override the chart name
@@ -64,6 +64,12 @@ harbor:
   adminSecret: "harbor-admin-password"
   # -- Key within the admin secret that holds the password
   adminSecretKey: "HARBOR_ADMIN_PASSWORD"
+  # -- When true, deleting a ProxyCache CR from Kubernetes will NOT delete the
+  # corresponding Harbor registry endpoint, project, or cached repositories.
+  # The finalizer is still removed so the CR can be garbage collected. Default
+  # (false) cascades cleanup so `kubectl delete proxycache` empties the project
+  # of cached images and removes the registry endpoint.
+  retainOnDelete: false
 
 # -- securityContext applied to the controller container
 containerSecurityContext:

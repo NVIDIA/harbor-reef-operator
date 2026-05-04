@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 )
 
@@ -244,5 +245,75 @@ func TestEnsureRegistryEndpoint_WithRegion(t *testing.T) {
 	}
 	if receivedPayload.Region != "us-west-2" {
 		t.Errorf("expected region 'us-west-2', got %q", receivedPayload.Region)
+	}
+}
+
+func TestDeleteAllRepositoriesInProject(t *testing.T) {
+	listCalls := 0
+	deleted := []string{}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == "/api/v2.0/projects/proxy-gcr/repositories":
+			listCalls++
+			if listCalls == 1 {
+				json.NewEncoder(w).Encode([]repositoryEntry{
+					{ID: 1, Name: "proxy-gcr/google-containers/pause"},
+					{ID: 2, Name: "proxy-gcr/datadoghq/agent"},
+				})
+				return
+			}
+			json.NewEncoder(w).Encode([]repositoryEntry{})
+		case r.Method == http.MethodDelete && strings.HasPrefix(r.URL.Path, "/api/v2.0/projects/proxy-gcr/repositories/"):
+			// RawPath preserves the on-the-wire %2F encoding that Harbor
+			// requires; r.URL.Path is the decoded form.
+			raw := r.URL.RawPath
+			if raw == "" {
+				raw = r.URL.Path
+			}
+			deleted = append(deleted, strings.TrimPrefix(raw, "/api/v2.0/projects/proxy-gcr/repositories/"))
+			w.WriteHeader(http.StatusOK)
+		default:
+			t.Errorf("unexpected request: %s %s", r.Method, r.URL.Path)
+			http.Error(w, "unexpected", http.StatusInternalServerError)
+		}
+	}))
+	defer srv.Close()
+
+	hc := NewClient(srv.URL, "admin", "pass")
+	if err := hc.DeleteAllRepositoriesInProject("proxy-gcr"); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	want := map[string]bool{
+		"google-containers%2Fpause": false,
+		"datadoghq%2Fagent":         false,
+	}
+	for _, d := range deleted {
+		if _, ok := want[d]; !ok {
+			t.Errorf("unexpected DELETE on %q", d)
+			continue
+		}
+		want[d] = true
+	}
+	for k, seen := range want {
+		if !seen {
+			t.Errorf("expected DELETE on %q, did not see it; got %v", k, deleted)
+		}
+	}
+}
+
+func TestDeleteAllRepositoriesInProject_Empty(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet && strings.HasSuffix(r.URL.Path, "/repositories") {
+			json.NewEncoder(w).Encode([]repositoryEntry{})
+			return
+		}
+		t.Errorf("unexpected request: %s %s", r.Method, r.URL.Path)
+	}))
+	defer srv.Close()
+
+	hc := NewClient(srv.URL, "admin", "pass")
+	if err := hc.DeleteAllRepositoriesInProject("proxy-empty"); err != nil {
+		t.Fatalf("unexpected error: %v", err)
 	}
 }

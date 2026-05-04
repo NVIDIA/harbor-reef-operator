@@ -29,9 +29,7 @@ spec:
       {{- end }}
       {{- with .Values.imagePullSecrets }}
       imagePullSecrets:
-        {{- range . }}
-        - name: {{ . | quote }}
-        {{- end }}
+        {{- toYaml . | nindent 8 }}
       {{- end }}
       containers:
         - name: controller
@@ -65,6 +63,10 @@ spec:
             {{- if .Values.harbor.adminSecretKey }}
             - name: HARBOR_ADMIN_SECRET_KEY
               value: {{ .Values.harbor.adminSecretKey | quote }}
+            {{- end }}
+            {{- if .Values.harbor.retainOnDelete }}
+            - name: HARBOR_RETAIN_ON_DELETE
+              value: "true"
             {{- end }}
           {{- if .Values.metrics.enabled }}
           ports:

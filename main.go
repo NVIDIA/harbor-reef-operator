@@ -105,14 +105,16 @@ func main() {
 	}
 
 	if harborURL != "" {
+		retainOnDelete := strings.EqualFold(strings.TrimSpace(os.Getenv("HARBOR_RETAIN_ON_DELETE")), "true")
 		pcReconciler := pcctrl.NewReconciler(
 			mgr.GetClient(), harborURL, harborAdminSecret, harborAdminSecretKey, podNamespace,
 		)
+		pcReconciler.RetainOnDelete = retainOnDelete
 		if err := pcReconciler.SetupWithManager(mgr); err != nil {
 			ctrl.Log.Error(err, "unable to create proxycache controller")
 			os.Exit(1)
 		}
-		ctrl.Log.Info("ProxyCache controller enabled", "harborURL", harborURL)
+		ctrl.Log.Info("ProxyCache controller enabled", "harborURL", harborURL, "retainOnDelete", retainOnDelete)
 	} else {
 		ctrl.Log.Info("ProxyCache controller disabled (HARBOR_URL not set)")
 	}

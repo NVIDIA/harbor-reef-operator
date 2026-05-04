@@ -35,6 +35,11 @@ type Reconciler struct {
 	HarborAdminSecret    string
 	HarborAdminSecretKey string
 	SecretNamespace      string
+	// RetainOnDelete, when true, makes the finalizer skip Harbor cleanup
+	// (registry endpoint, project, and cached repositories) when a ProxyCache
+	// CR is deleted. The finalizer is still removed so the CR can be garbage
+	// collected; Harbor state is preserved for manual cleanup.
+	RetainOnDelete bool
 }
 
 // NewReconciler creates a ProxyCache Reconciler.
@@ -68,22 +73,26 @@ func (r *Reconciler) Reconcile(ctx context.Context, req reconcile.Request) (reco
 		if !controllerutil.ContainsFinalizer(&pc, finalizerName) {
 			return reconcile.Result{}, nil
 		}
-		logger.Info("ProxyCache being deleted, cleaning up Harbor resources")
-		adminPass, err := r.readSecretKey(ctx, r.HarborAdminSecret, r.HarborAdminSecretKey)
-		if err != nil {
-			return reconcile.Result{RequeueAfter: requeueOnError},
-				fmt.Errorf("reading harbor admin secret for cleanup: %w", err)
-		}
-		hc := harbor.NewClient(r.HarborURL, "admin", adminPass)
-		if err := deleteHarborResources(ctx, &pc, hc); err != nil {
-			return reconcile.Result{RequeueAfter: requeueOnError},
-				fmt.Errorf("deleting harbor resources for %q: %w", pc.Spec.Name, err)
+		if r.RetainOnDelete {
+			logger.Info("ProxyCache being deleted; retainOnDelete=true, preserving Harbor resources")
+		} else {
+			logger.Info("ProxyCache being deleted, cleaning up Harbor resources")
+			adminPass, err := r.readSecretKey(ctx, r.HarborAdminSecret, r.HarborAdminSecretKey)
+			if err != nil {
+				return reconcile.Result{RequeueAfter: requeueOnError},
+					fmt.Errorf("reading harbor admin secret for cleanup: %w", err)
+			}
+			hc := harbor.NewClient(r.HarborURL, "admin", adminPass)
+			if err := deleteHarborResources(ctx, &pc, hc); err != nil {
+				return reconcile.Result{RequeueAfter: requeueOnError},
+					fmt.Errorf("deleting harbor resources for %q: %w", pc.Spec.Name, err)
+			}
 		}
 		controllerutil.RemoveFinalizer(&pc, finalizerName)
 		if err := r.client.Update(ctx, &pc); err != nil {
 			return reconcile.Result{}, err
 		}
-		logger.Info("Finalizer removed, Harbor resources cleaned up")
+		logger.Info("Finalizer removed")
 		return reconcile.Result{}, nil
 	}
 
@@ -261,9 +270,14 @@ func (r *Reconciler) setErrorStatus(ctx context.Context, pc *v1alpha1.ProxyCache
 	return reconcile.Result{RequeueAfter: requeueOnError}, fmt.Errorf("%s", message)
 }
 
-// deleteHarborResources removes the proxy project and registry endpoint from
-// Harbor. Both calls are idempotent: already-absent resources are not errors.
+// deleteHarborResources removes cached repositories, the proxy project, and
+// the registry endpoint from Harbor. Repositories are removed first because
+// Harbor refuses to delete a project that still contains them. All calls are
+// idempotent: already-absent resources are not errors.
 func deleteHarborResources(_ context.Context, pc *v1alpha1.ProxyCache, hc *harbor.Client) error {
+	if err := hc.DeleteAllRepositoriesInProject(pc.Spec.Name); err != nil {
+		return fmt.Errorf("emptying proxy project %q: %w", pc.Spec.Name, err)
+	}
 	if err := hc.DeleteProject(pc.Spec.Name); err != nil {
 		return fmt.Errorf("deleting proxy project %q: %w", pc.Spec.Name, err)
 	}

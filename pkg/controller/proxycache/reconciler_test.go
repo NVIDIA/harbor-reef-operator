@@ -68,12 +68,37 @@ func newFakeHarborServer(t *testing.T) *httptest.Server {
 	}))
 }
 
-func newFakeHarborServerForDelete(t *testing.T) *httptest.Server {
+// newFakeHarborServerForDelete returns a Harbor stub for finalizer tests.
+// repos seeds the repository list returned for the project's first
+// /repositories GET; a second GET returns empty to terminate the page loop.
+// The handler tracks every DELETE on /repositories/* in deletedRepos.
+func newFakeHarborServerForDelete(t *testing.T, repos []string, deletedRepos *[]string) *httptest.Server {
 	t.Helper()
+	repoListCalls := 0
 	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
 		case r.Method == http.MethodGet && r.URL.Path == "/api/v2.0/registries":
 			json.NewEncoder(w).Encode([]registryEntry{{ID: 42, Name: r.URL.Query().Get("name")}})
+		case r.Method == http.MethodGet && strings.HasSuffix(r.URL.Path, "/repositories"):
+			repoListCalls++
+			if repoListCalls == 1 {
+				entries := make([]map[string]any, 0, len(repos))
+				for _, name := range repos {
+					entries = append(entries, map[string]any{"id": 1, "name": name})
+				}
+				json.NewEncoder(w).Encode(entries)
+				return
+			}
+			json.NewEncoder(w).Encode([]map[string]any{})
+		case r.Method == http.MethodDelete && strings.Contains(r.URL.Path, "/repositories/"):
+			if deletedRepos != nil {
+				raw := r.URL.RawPath
+				if raw == "" {
+					raw = r.URL.Path
+				}
+				*deletedRepos = append(*deletedRepos, raw)
+			}
+			w.WriteHeader(http.StatusOK)
 		case r.Method == http.MethodDelete && strings.HasPrefix(r.URL.Path, "/api/v2.0/projects/"):
 			w.WriteHeader(http.StatusOK)
 		case r.Method == http.MethodDelete && strings.HasPrefix(r.URL.Path, "/api/v2.0/registries/"):
@@ -260,7 +285,7 @@ func TestReconciler_UnknownType(t *testing.T) {
 }
 
 func TestReconciler_DeletionTimestamp(t *testing.T) {
-	srv := newFakeHarborServerForDelete(t)
+	srv := newFakeHarborServerForDelete(t, nil, nil)
 	defer srv.Close()
 
 	now := metav1.Now()
@@ -294,6 +319,84 @@ func TestReconciler_DeletionTimestamp(t *testing.T) {
 	err = cl.Get(context.Background(), types.NamespacedName{Name: "proxy-deleting"}, &updated)
 	if !apierrors.IsNotFound(err) {
 		t.Fatalf("expected object to be garbage-collected after finalizer removal, got err=%v", err)
+	}
+}
+
+// Verify that deletion cascades repository cleanup before the project delete,
+// using a stub that simulates a project with cached images.
+func TestReconciler_DeletionCascadesRepositories(t *testing.T) {
+	deleted := []string{}
+	repos := []string{"proxy-gcr/google-containers/pause", "proxy-gcr/datadoghq/agent"}
+	srv := newFakeHarborServerForDelete(t, repos, &deleted)
+	defer srv.Close()
+
+	now := metav1.Now()
+	pc := &v1alpha1.ProxyCache{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:              "proxy-gcr",
+			DeletionTimestamp: &now,
+			Finalizers:        []string{finalizerName},
+		},
+		Spec: v1alpha1.ProxyCacheSpec{Type: "public", Name: "proxy-gcr", URL: "https://gcr.io"},
+	}
+	adminSecret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{Name: "harbor-admin-password", Namespace: "harbor"},
+		Data:       map[string][]byte{"HARBOR_ADMIN_PASSWORD": []byte("admin123")},
+	}
+
+	cl := fake.NewClientBuilder().WithScheme(testScheme).WithObjects(pc, adminSecret).Build()
+	r := NewReconciler(cl, srv.URL, "harbor-admin-password", "HARBOR_ADMIN_PASSWORD", "harbor")
+
+	if _, err := r.Reconcile(context.Background(), reconcile.Request{NamespacedName: types.NamespacedName{Name: "proxy-gcr"}}); err != nil {
+		t.Fatalf("expected nil error, got: %v", err)
+	}
+
+	if len(deleted) != 2 {
+		t.Fatalf("expected 2 repository deletions, got %d: %v", len(deleted), deleted)
+	}
+	for _, want := range []string{"google-containers%2Fpause", "datadoghq%2Fagent"} {
+		found := false
+		for _, got := range deleted {
+			if strings.HasSuffix(got, "/"+want) {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Errorf("expected a DELETE on repo %q, got: %v", want, deleted)
+		}
+	}
+}
+
+// Verify that retainOnDelete=true removes the finalizer without calling Harbor.
+func TestReconciler_DeletionRetainOnDelete(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Errorf("retainOnDelete should not call Harbor; got %s %s", r.Method, r.URL.Path)
+	}))
+	defer srv.Close()
+
+	now := metav1.Now()
+	pc := &v1alpha1.ProxyCache{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:              "proxy-keep",
+			DeletionTimestamp: &now,
+			Finalizers:        []string{finalizerName},
+		},
+		Spec: v1alpha1.ProxyCacheSpec{Type: "public", Name: "proxy-keep", URL: "https://gcr.io"},
+	}
+
+	cl := fake.NewClientBuilder().WithScheme(testScheme).WithObjects(pc).Build()
+	r := NewReconciler(cl, srv.URL, "harbor-admin-password", "HARBOR_ADMIN_PASSWORD", "harbor")
+	r.RetainOnDelete = true
+
+	if _, err := r.Reconcile(context.Background(), reconcile.Request{NamespacedName: types.NamespacedName{Name: "proxy-keep"}}); err != nil {
+		t.Fatalf("expected nil error, got: %v", err)
+	}
+
+	var updated v1alpha1.ProxyCache
+	err := cl.Get(context.Background(), types.NamespacedName{Name: "proxy-keep"}, &updated)
+	if !apierrors.IsNotFound(err) {
+		t.Fatalf("expected GC after finalizer removal, got err=%v", err)
 	}
 }
 

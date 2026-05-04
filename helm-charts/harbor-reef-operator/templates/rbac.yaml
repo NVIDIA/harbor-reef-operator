@@ -30,7 +30,7 @@ rules:
     verbs: ["get","list","watch","create","update","patch"]
   - apiGroups: ["harbor-reef.nvidia.com"]
     resources: ["proxycaches"]
-    verbs: ["get","list","watch","patch"]
+    verbs: ["get","list","watch","patch","update"]
   - apiGroups: ["harbor-reef.nvidia.com"]
     resources: ["proxycaches/status"]
     verbs: ["get","patch","update"]

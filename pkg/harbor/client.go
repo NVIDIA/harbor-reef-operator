@@ -59,6 +59,11 @@ type projectEntry struct {
 	Name      string `json:"name"`
 }
 
+type repositoryEntry struct {
+	ID   int    `json:"id"`
+	Name string `json:"name"` // formatted as "<project>/<repository>"
+}
+
 type projectPayload struct {
 	ProjectName string `json:"project_name"`
 	Public      bool   `json:"public"`
@@ -147,6 +152,61 @@ func (h *Client) EnsureProxyProject(name string, registryID int, public bool) er
 	}
 	if code != http.StatusCreated && code != http.StatusConflict {
 		return fmt.Errorf("creating project %q: HTTP %d: %s", name, code, string(respBody))
+	}
+	return nil
+}
+
+// DeleteAllRepositoriesInProject removes every repository (and all its
+// artifacts) from the named project. Harbor refuses to delete a project that
+// still contains repositories, so this must be called before DeleteProject for
+// any project that has been pulled through.
+//
+// Idempotent: empty/missing projects return nil.
+func (h *Client) DeleteAllRepositoriesInProject(projectName string) error {
+	page := 1
+	const pageSize = 100
+	prefix := projectName + "/"
+
+	var all []repositoryEntry
+	for {
+		path := fmt.Sprintf("/api/v2.0/projects/%s/repositories?page=%d&page_size=%d",
+			url.PathEscape(projectName), page, pageSize)
+		code, body, err := h.doRequest(http.MethodGet, path, nil)
+		if err != nil {
+			return fmt.Errorf("listing repositories in %q: %w", projectName, err)
+		}
+		if code == http.StatusNotFound {
+			return nil
+		}
+		if code != http.StatusOK {
+			return fmt.Errorf("listing repositories in %q: HTTP %d: %s", projectName, code, string(body))
+		}
+
+		var repos []repositoryEntry
+		if err := json.Unmarshal(body, &repos); err != nil {
+			return fmt.Errorf("decoding repository list for %q: %w", projectName, err)
+		}
+		all = append(all, repos...)
+		if len(repos) < pageSize {
+			break
+		}
+		page++
+	}
+
+	for _, r := range all {
+		// Harbor returns names as "<project>/<repo>"; the DELETE path takes the
+		// repo portion with internal slashes percent-encoded.
+		repoName := strings.TrimPrefix(r.Name, prefix)
+		encoded := strings.ReplaceAll(repoName, "/", "%2F")
+		delPath := fmt.Sprintf("/api/v2.0/projects/%s/repositories/%s",
+			url.PathEscape(projectName), encoded)
+		code, body, err := h.doRequest(http.MethodDelete, delPath, nil)
+		if err != nil {
+			return fmt.Errorf("deleting repository %q: %w", r.Name, err)
+		}
+		if code != http.StatusOK && code != http.StatusNotFound {
+			return fmt.Errorf("deleting repository %q: HTTP %d: %s", r.Name, code, string(body))
+		}
 	}
 	return nil
 }
