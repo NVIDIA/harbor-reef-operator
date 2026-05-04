@@ -132,11 +132,11 @@ The CRD is cluster-scoped.
 apiVersion: harbor-reef.nvidia.com/v1alpha1
 kind: ProxyCache
 metadata:
-  name: proxy-k8s
+  name: proxy-public
 spec:
   type: public            # "public", "private", or "aws-ecr-private"
-  name: proxy-k8s         # Harbor registry endpoint and project name
-  url: https://registry.k8s.io
+  name: proxy-public      # Harbor registry endpoint and project name
+  url: https://registry.example.com
 ```
 
 Three proxy cache types are supported:
@@ -152,13 +152,13 @@ Three proxy cache types are supported:
 apiVersion: harbor-reef.nvidia.com/v1alpha1
 kind: ProxyCache
 metadata:
-  name: proxy-nvcr
+  name: proxy-private
 spec:
   type: private
-  name: proxy-nvcr
-  url: https://nvcr.io
+  name: proxy-private
+  url: https://private.registry.example.com
   credentials:
-    secretName: ngc-api-secret
+    secretName: private-registry-credentials
     usernameKey: username      # default: "username"
     passwordKey: password      # default: "password"
 ```
@@ -168,12 +168,12 @@ spec:
 apiVersion: harbor-reef.nvidia.com/v1alpha1
 kind: ProxyCache
 metadata:
-  name: proxy-ecr-private
+  name: proxy-ecr
 spec:
   type: aws-ecr-private
-  name: proxy-ecr-private
+  name: proxy-ecr
   ecr:
-    accountId: "563805952193"
+    accountId: "123456789012"
     region: us-west-2
     staticCredentialsSecretName: ecr-static-credentials
 ```
@@ -226,10 +226,10 @@ kubectl get hpc
 ```
 
 ```
-NAME                TYPE              PHASE   AGE
-proxy-k8s           public            Ready   5m
-proxy-nvcr          private           Ready   5m
-proxy-ecr-private   aws-ecr-private   Ready   5m
+NAME            TYPE              PHASE   AGE
+proxy-public    public            Ready   5m
+proxy-private   private           Ready   5m
+proxy-ecr       aws-ecr-private   Ready   5m
 ```
 
 ## Install via Helm chart

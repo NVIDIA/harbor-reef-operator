@@ -1,8 +1,8 @@
 apiVersion: harbor-reef.nvidia.com/v1alpha1
 kind: ProxyCache
 metadata:
-  name: proxy-gcr
+  name: proxy-public
 spec:
   type: public
-  name: proxy-gcr
-  url: https://gcr.io
+  name: proxy-public
+  url: https://registry.example.com

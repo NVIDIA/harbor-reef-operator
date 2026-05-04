@@ -154,10 +154,10 @@ func TestReconciler_PrivateCache(t *testing.T) {
 	defer srv.Close()
 
 	pc := &v1alpha1.ProxyCache{
-		ObjectMeta: metav1.ObjectMeta{Name: "proxy-nvcr"},
+		ObjectMeta: metav1.ObjectMeta{Name: "proxy-private"},
 		Spec: v1alpha1.ProxyCacheSpec{
-			Type: "private", Name: "proxy-nvcr", URL: "https://nvcr.io",
-			Credentials: &v1alpha1.CredentialSpec{SecretName: "ngc-api-secret", UsernameKey: "username", PasswordKey: "password"},
+			Type: "private", Name: "proxy-private", URL: "https://private.registry.example.com",
+			Credentials: &v1alpha1.CredentialSpec{SecretName: "private-registry-credentials", UsernameKey: "username", PasswordKey: "password"},
 		},
 	}
 	adminSecret := &corev1.Secret{
@@ -165,14 +165,14 @@ func TestReconciler_PrivateCache(t *testing.T) {
 		Data:       map[string][]byte{"HARBOR_ADMIN_PASSWORD": []byte("admin123")},
 	}
 	credSecret := &corev1.Secret{
-		ObjectMeta: metav1.ObjectMeta{Name: "ngc-api-secret", Namespace: "harbor"},
-		Data:       map[string][]byte{"username": []byte("$oauthtoken"), "password": []byte("nvapi-key")},
+		ObjectMeta: metav1.ObjectMeta{Name: "private-registry-credentials", Namespace: "harbor"},
+		Data:       map[string][]byte{"username": []byte("test-user"), "password": []byte("test-pass")},
 	}
 
 	cl := fake.NewClientBuilder().WithScheme(testScheme).WithObjects(pc, adminSecret, credSecret).WithStatusSubresource(pc).Build()
 	r := NewReconciler(cl, srv.URL, "harbor-admin-password", "HARBOR_ADMIN_PASSWORD", "harbor")
 
-	result, err := r.Reconcile(context.Background(), reconcile.Request{NamespacedName: types.NamespacedName{Name: "proxy-nvcr"}})
+	result, err := r.Reconcile(context.Background(), reconcile.Request{NamespacedName: types.NamespacedName{Name: "proxy-private"}})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -181,7 +181,7 @@ func TestReconciler_PrivateCache(t *testing.T) {
 	}
 
 	var updated v1alpha1.ProxyCache
-	if err := cl.Get(context.Background(), types.NamespacedName{Name: "proxy-nvcr"}, &updated); err != nil {
+	if err := cl.Get(context.Background(), types.NamespacedName{Name: "proxy-private"}, &updated); err != nil {
 		t.Fatalf("failed to get: %v", err)
 	}
 	if updated.Status.Phase != "Ready" {
@@ -197,7 +197,7 @@ func TestReconciler_ECRCache(t *testing.T) {
 		ObjectMeta: metav1.ObjectMeta{Name: "proxy-ecr-private"},
 		Spec: v1alpha1.ProxyCacheSpec{
 			Type: "aws-ecr-private", Name: "proxy-ecr-private",
-			ECR: &v1alpha1.ECRSpec{AccountID: "563805952193", Region: "us-west-2", StaticCredentialsSecretName: "ecr-static-credentials"},
+			ECR: &v1alpha1.ECRSpec{AccountID: "123456789012", Region: "us-west-2", StaticCredentialsSecretName: "ecr-static-credentials"},
 		},
 	}
 	adminSecret := &corev1.Secret{
@@ -473,8 +473,8 @@ func TestProxyCachesForSecret(t *testing.T) {
 	pcA := &v1alpha1.ProxyCache{
 		ObjectMeta: metav1.ObjectMeta{Name: "proxy-a"},
 		Spec: v1alpha1.ProxyCacheSpec{
-			Type: "private", Name: "proxy-a", URL: "https://nvcr.io",
-			Credentials: &v1alpha1.CredentialSpec{SecretName: "ngc-creds"},
+			Type: "private", Name: "proxy-a", URL: "https://private.registry.example.com",
+			Credentials: &v1alpha1.CredentialSpec{SecretName: "private-creds"},
 		},
 	}
 	pcB := &v1alpha1.ProxyCache{
@@ -504,7 +504,7 @@ func TestProxyCachesForSecret(t *testing.T) {
 		},
 		{
 			name:      "private credential secret enqueues only matching CR",
-			secret:    &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: "ngc-creds", Namespace: "harbor"}},
+			secret:    &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: "private-creds", Namespace: "harbor"}},
 			wantNames: []string{"proxy-a"},
 		},
 		{
@@ -519,7 +519,7 @@ func TestProxyCachesForSecret(t *testing.T) {
 		},
 		{
 			name:      "secret in wrong namespace enqueues nothing",
-			secret:    &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: "ngc-creds", Namespace: "elsewhere"}},
+			secret:    &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: "private-creds", Namespace: "elsewhere"}},
 			wantNames: nil,
 		},
 	}

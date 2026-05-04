@@ -1,12 +1,12 @@
 apiVersion: harbor-reef.nvidia.com/v1alpha1
 kind: ProxyCache
 metadata:
-  name: proxy-nvcr-test
+  name: proxy-private
 spec:
   type: private
-  name: proxy-nvcr-test
-  url: https://nvcr.io
+  name: proxy-private
+  url: https://private.registry.example.com
   credentials:
-    secretName: ngc-api-secret
+    secretName: private-registry-credentials
     usernameKey: username
     passwordKey: password

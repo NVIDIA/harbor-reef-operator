@@ -19,8 +19,8 @@ func TestNormalizeRegistryURL(t *testing.T) {
 	}{
 		{"docker.io with https", "https://docker.io", "https://registry-1.docker.io"},
 		{"docker.io without scheme", "docker.io", "https://registry-1.docker.io"},
-		{"registry.k8s.io unchanged", "https://registry.k8s.io", "https://registry.k8s.io"},
-		{"nvcr.io unchanged", "https://nvcr.io", "https://nvcr.io"},
+		{"public registry unchanged", "https://registry.example.com", "https://registry.example.com"},
+		{"private registry unchanged", "https://private.registry.example.com", "https://private.registry.example.com"},
 		{"empty string unchanged", "", ""},
 	}
 	for _, tt := range tests {
@@ -62,7 +62,7 @@ func TestEnsureRegistryEndpoint_Creates(t *testing.T) {
 				json.NewEncoder(w).Encode([]registryEntry{})
 				return
 			}
-			json.NewEncoder(w).Encode([]registryEntry{{ID: 7, Name: "proxy-nvcr"}})
+			json.NewEncoder(w).Encode([]registryEntry{{ID: 7, Name: "proxy-private"}})
 			return
 		}
 		if r.Method == http.MethodPost && r.URL.Path == "/api/v2.0/registries" {
@@ -74,7 +74,7 @@ func TestEnsureRegistryEndpoint_Creates(t *testing.T) {
 	defer srv.Close()
 
 	hc := NewClient(srv.URL, "admin", "pass")
-	id, err := hc.EnsureRegistryEndpoint("proxy-nvcr", "https://nvcr.io", "docker-registry",
+	id, err := hc.EnsureRegistryEndpoint("proxy-private", "https://private.registry.example.com", "docker-registry",
 		&RegistryCredential{Type: "basic", AccessKey: "user", AccessSecret: "pw"}, "")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -195,12 +195,12 @@ func TestEnsureProxyProject_Creates(t *testing.T) {
 	defer srv.Close()
 
 	hc := NewClient(srv.URL, "admin", "pass")
-	err := hc.EnsureProxyProject("proxy-nvcr", 7, false)
+	err := hc.EnsureProxyProject("proxy-private", 7, false)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if receivedPayload.ProjectName != "proxy-nvcr" {
-		t.Errorf("expected project name 'proxy-nvcr', got %q", receivedPayload.ProjectName)
+	if receivedPayload.ProjectName != "proxy-private" {
+		t.Errorf("expected project name 'proxy-private', got %q", receivedPayload.ProjectName)
 	}
 	if receivedPayload.RegistryID != 7 {
 		t.Errorf("expected registry_id=7, got %d", receivedPayload.RegistryID)

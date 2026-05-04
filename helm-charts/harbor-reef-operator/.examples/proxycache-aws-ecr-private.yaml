@@ -1,0 +1,11 @@
+apiVersion: harbor-reef.nvidia.com/v1alpha1
+kind: ProxyCache
+metadata:
+  name: proxy-ecr
+spec:
+  type: aws-ecr-private
+  name: proxy-ecr
+  ecr:
+    accountId: "123456789012"
+    region: us-west-2
+    staticCredentialsSecretName: ecr-static-credentials
