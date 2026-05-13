@@ -89,12 +89,12 @@ resources:
     # -- Requested CPU for the controller container
     cpu: 100m
     # -- Requested memory for the controller container
-    memory: 64Mi
+    memory: 256Mi
   limits:
     # -- CPU limit for the controller container
-    cpu: 200m
+    cpu: 500m
     # -- Memory limit for the controller container
-    memory: 128Mi
+    memory: 512Mi
 
 # -- Node selector labels for scheduling the controller pod
 nodeSelector: {}
