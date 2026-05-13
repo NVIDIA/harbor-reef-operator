@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
 CHAINSAW_VERSION ?= v0.2.15
 CHAINSAW := $(shell command -v chainsaw 2>/dev/null)
 TEST_DIR := test/chainsaw
