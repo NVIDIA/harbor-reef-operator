@@ -100,14 +100,16 @@ spec:
           : "${HARBOR_API_BASE:?HARBOR_API_BASE must be set by the runner}"
           : "${HARBOR_ADMIN_PASS:?HARBOR_ADMIN_PASS must be set by the runner}"
           # Harbor registers the repo a moment after blobs are served.
-          for i in $(seq 1 10); do
+          # Local runs typically see this in ~16s; CI has been observed up
+          # to ~30s. Poll for 60s before giving up.
+          for i in $(seq 1 30); do
             n=$(curl -sk -u "admin:$HARBOR_ADMIN_PASS" --fail \
               "$HARBOR_API_BASE/api/v2.0/projects/$PC_NAME/repositories" | jq 'length')
             echo "attempt $i: repositories in project $PC_NAME: $n"
             if [ "$n" -ge 1 ]; then exit 0; fi
             sleep 2
           done
-          echo "FAIL: project still has 0 repositories after 20s"
+          echo "FAIL: project still has 0 repositories after 60s"
           exit 1
 
   - name: delete-and-assert-cascade
