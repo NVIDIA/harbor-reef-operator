@@ -1,0 +1,8 @@
+apiVersion: harbor-reef.nvidia.com/v1alpha1
+kind: ProxyCache
+metadata:
+  name: ($pcName)
+spec:
+  type: bogus
+  name: ($pcName)
+  url: https://example.com

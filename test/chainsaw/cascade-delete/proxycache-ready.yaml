@@ -1,0 +1,9 @@
+apiVersion: harbor-reef.nvidia.com/v1alpha1
+kind: ProxyCache
+metadata:
+  name: ($pcName)
+  finalizers:
+  - harbor-reef.nvidia.com/proxycache-finalizer
+status:
+  phase: Ready
+  projectCreated: true

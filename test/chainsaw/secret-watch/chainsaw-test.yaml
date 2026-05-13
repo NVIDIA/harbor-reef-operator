@@ -1,0 +1,73 @@
+apiVersion: chainsaw.kyverno.io/v1alpha1
+kind: Test
+metadata:
+  name: secret-watch
+spec:
+  description: |
+    Verifies that the controller's Watches(&corev1.Secret{}) wiring causes a
+    reconcile to fire promptly when a referenced credential Secret is created.
+
+    The Go unit tests cover the proxyCachesForSecret mapping function in
+    isolation, but cannot prove that the controller-runtime informer is
+    actually wired up. A regression where SetupWithManager forgets the
+    Watches() call would pass unit tests and fail in production.
+
+    Test shape:
+      1. Create a private ProxyCache that references a Secret which does not
+         exist yet -- assert phase=Error with "not found" in the message.
+      2. Create the missing Secret in the operator's namespace.
+      3. Within 10s -- well under the 30s requeue interval -- assert that the
+         message no longer contains "not found". The only way the controller
+         can react that quickly is via the Secret watch; the requeue tick
+         would not have fired yet.
+
+    The Secret can carry any value. We do not assert Ready because Harbor's
+    registry-endpoint health check against quay.io with anonymous credentials
+    may still fail -- the test deliberately ignores the post-reconcile
+    outcome and only asserts that the reconcile *fired*.
+  bindings:
+  - name: pcName
+    value: (join('-', ['chainsaw-secret-watch', $namespace]))
+  - name: secretName
+    value: (join('-', ['chainsaw-secret-watch', $namespace, 'creds']))
+  # The operator looks up credential secrets in its own namespace (POD_NAMESPACE).
+  - name: operatorNamespace
+    value: harbor-reef
+  steps:
+  - name: create-proxycache-with-missing-secret
+    try:
+    - apply:
+        file: proxycache.yaml
+    - assert:
+        file: proxycache-error-missing-secret.yaml
+    cleanup:
+    - delete:
+        ref:
+          apiVersion: harbor-reef.nvidia.com/v1alpha1
+          kind: ProxyCache
+          name: ($pcName)
+
+  - name: create-secret-and-assert-fast-reconcile
+    description: |
+      Create the referenced Secret and assert that the controller reconciles
+      within 10s -- well below the 30s requeue interval. The assertion is
+      that status.message no longer contains "not found".
+    try:
+    - apply:
+        file: secret.yaml
+    - assert:
+        timeout: 10s
+        resource:
+          apiVersion: harbor-reef.nvidia.com/v1alpha1
+          kind: ProxyCache
+          metadata:
+            name: ($pcName)
+          status:
+            (contains(message || '', 'not found') == `false`): true
+    cleanup:
+    - delete:
+        ref:
+          apiVersion: v1
+          kind: Secret
+          namespace: ($operatorNamespace)
+          name: ($secretName)

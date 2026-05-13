@@ -1,0 +1,19 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: ($podName)
+  annotations:
+    # The user-supplied original-upstreams annotation wins over any cluster
+    # admission policy that auto-populates this annotation (e.g. the kyverno
+    # image-rewrite policy used in the harbor-reef stack), assuming that
+    # policy uses merge() with user values last. We point "main" at a
+    # known-good upstream that actually pulls.
+    harbor.rewrite/original-upstreams: '{"main":"registry.k8s.io/pause:3.10"}'
+spec:
+  restartPolicy: Never
+  terminationGracePeriodSeconds: 1
+  containers:
+  - name: main
+    image: ($brokenImage)
+    imagePullPolicy: Always
+    command: ["/pause"]

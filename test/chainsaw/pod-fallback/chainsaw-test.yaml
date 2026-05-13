@@ -1,0 +1,90 @@
+apiVersion: chainsaw.kyverno.io/v1alpha1
+kind: Test
+metadata:
+  name: pod-fallback
+spec:
+  description: |
+    Verifies the pod fallback controller: when a Pod enters ImagePullBackOff
+    or ErrImagePull, the operator patches spec.containers[].image to the
+    value recorded in the harbor.rewrite/original-upstreams annotation so
+    that the next kubelet pull bypasses the broken proxy and goes to the
+    original upstream.
+
+    This is end-to-end-only territory: the controller-runtime Pod informer,
+    the predicate that filters on ImagePullBackOff/ErrImagePull transitions,
+    and the JSON6902 patch syntax against a live Pod cannot be exercised by
+    the Go unit tests (which use a fake client without admission controllers
+    and without kubelet behaviour). A regression where SetupWithManager
+    forgets the predicate, or where the patch path is escaped incorrectly,
+    would slip past unit tests and fail here.
+
+    Test shape:
+      1. Create a Pod whose image points at a Harbor proxy project that
+         does not exist (host taken from HARBOR_API_HOST). The annotation
+         lists registry.k8s.io/pause:3.10 as the fallback. The pod will
+         fail to pull.
+      2. Assert the operator (a) sets the harbor-reef/patched-containers
+         annotation to ["main"] and (b) replaces spec.containers[0].image
+         with the upstream URL.
+      3. Assert the Pod eventually reaches Running -- proves the fallback
+         image is actually usable, not just that the operator wrote bytes.
+    The runner must inject HARBOR_API_HOST (host only, no scheme, e.g.
+    "harbor.example.com") via env. See test/chainsaw/README.md.
+  bindings:
+  - name: podName
+    value: (join('-', ['chainsaw-fallback', $namespace]))
+  # Compose the broken-pod image URL from the runner-provided host. We
+  # deliberately route through a Harbor project that does not exist so the
+  # pull fails fast (NOT_FOUND at the proxy). The hostname pattern also
+  # does not match the kyverno image-rewrite policy's regexes (those
+  # rewrite upstream URLs into Harbor paths, not the reverse), so the
+  # broken image reaches kubelet unchanged.
+  - name: brokenImage
+    value: (join('/', [(env('HARBOR_API_HOST')), 'does-not-exist-proxy-chainsaw-test', 'pause:3.10']))
+  steps:
+  - name: create-broken-pod
+    description: Apply a pod with a deliberately-broken image and an annotated fallback
+    try:
+    - apply:
+        file: broken-pod.yaml
+
+  - name: assert-operator-patches-image
+    description: |
+      The operator should observe ImagePullBackOff/ErrImagePull on the pod
+      and patch the image back to the upstream. We assert on both the
+      patched-containers annotation (proves the operator ran) and on the
+      spec image (proves the patch actually landed).
+
+      90s timeout: kubelet typically reports ErrImagePull within ~5s of the
+      first pull attempt, and the operator reconciles within 1-2s after.
+      The extra headroom covers backoff and scheduling variance.
+    try:
+    - assert:
+        timeout: 90s
+        resource:
+          apiVersion: v1
+          kind: Pod
+          metadata:
+            name: ($podName)
+            annotations:
+              harbor-reef/patched-containers: '["main"]'
+          spec:
+            containers:
+            - name: main
+              image: registry.k8s.io/pause:3.10
+
+  - name: assert-pod-recovers
+    description: |
+      Once the image is patched, kubelet re-pulls from registry.k8s.io and
+      the pod should reach Running. This is the smoke test that proves the
+      fallback is actually a fix and not just a write.
+    try:
+    - assert:
+        timeout: 60s
+        resource:
+          apiVersion: v1
+          kind: Pod
+          metadata:
+            name: ($podName)
+          status:
+            phase: Running

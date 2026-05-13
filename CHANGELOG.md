@@ -11,6 +11,13 @@ MAJOR version when you make incompatible API changes,
 MINOR version when you add functionality in a backwards compatible manner, and
 PATCH version when you make backwards compatible bug fixes.
 
+## [Unreleased]
+
+### Added
+
+- Chainsaw end-to-end test suite in `test/chainsaw/` covering CRD schema enforcement, cascade-delete with a cached repository, Secret-watch reconcile timing, and Pod-fallback patching on `ImagePullBackOff`. Targets seams that the Go unit suite cannot exercise (CRD YAML, RBAC, controller-runtime watch wiring, real Harbor API contract, JSON6902 patch against a live kubelet).
+- Top-level `Makefile` with `chainsaw` and `chainsaw-install` targets.
+
 ## [1.1.0] - 2026-05-04
 
 ### Added

@@ -262,6 +262,26 @@ Uninstall:
 helm uninstall harbor-reef-operator
 ```
 
+## Testing
+
+Unit tests:
+
+```bash
+make test
+```
+
+End-to-end tests against a live cluster + Harbor (chainsaw):
+
+```bash
+make chainsaw-install   # one-time
+make chainsaw           # runs against current kube context
+```
+
+The chainsaw suite covers seams that unit tests cannot reach: CRD schema
+enforcement at admission time, the operator's RBAC (cascade delete with a
+cached repository), and the controller-runtime Secret-watch wiring. See
+[test/chainsaw/README.md](./test/chainsaw/README.md) for details.
+
 ## Contribution Guidelines
 - See here: [CONTRIBUTING.md](./CONTRIBUTING.md)
 

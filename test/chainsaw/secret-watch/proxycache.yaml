@@ -1,0 +1,15 @@
+apiVersion: harbor-reef.nvidia.com/v1alpha1
+kind: ProxyCache
+metadata:
+  name: ($pcName)
+spec:
+  type: private
+  name: ($pcName)
+  # Anonymous-pullable upstream so that, once the secret exists, the only
+  # thing the controller is waiting on is Harbor's registry-endpoint health
+  # check. The behaviour we care about is the secret-watch firing fast --
+  # whether the ProxyCache reaches Ready depends on Harbor accepting the
+  # creds, which is orthogonal.
+  url: https://quay.io
+  credentials:
+    secretName: ($secretName)

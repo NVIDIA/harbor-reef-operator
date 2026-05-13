@@ -1,0 +1,54 @@
+apiVersion: chainsaw.kyverno.io/v1alpha1
+kind: Test
+metadata:
+  name: crd-schema
+spec:
+  description: |
+    Verifies the ProxyCache CRD openAPI schema enforces:
+      - the type enum (public, private, aws-ecr-private)
+      - required fields on the root spec
+      - required fields under credentials when credentials is set
+
+    These cases are not covered by the Go unit tests, which use the typed
+    struct and bypass server-side admission. A drift between the CRD YAML
+    and the Go API types would slip past unit tests but fail here.
+  bindings:
+  - name: pcName
+    value: (join('-', ['chainsaw-schema', $namespace]))
+  steps:
+  - name: reject-invalid-type
+    description: type=bogus must be rejected by the enum
+    try:
+    - apply:
+        file: invalid-type.yaml
+        dryRun: true
+        expect:
+        - check:
+            ($error != null): true
+
+  - name: reject-missing-required-name
+    description: spec.name is required at the root
+    try:
+    - apply:
+        file: missing-required.yaml
+        dryRun: true
+        expect:
+        - check:
+            ($error != null): true
+
+  - name: reject-private-missing-secret-name
+    description: credentials.secretName is required when credentials is set
+    try:
+    - apply:
+        file: private-missing-secret-name.yaml
+        dryRun: true
+        expect:
+        - check:
+            ($error != null): true
+
+  - name: accept-valid-public
+    description: positive control -- a valid public manifest must dry-run cleanly
+    try:
+    - apply:
+        file: valid-public.yaml
+        dryRun: true
