@@ -58,7 +58,7 @@ spec:
         - name: PC_NAME
           value: ($pcName)
         content: |
-          set -euo pipefail
+          set -eu
           : "${HARBOR_API_BASE:?HARBOR_API_BASE must be set by the runner}"
           : "${HARBOR_ADMIN_PASS:?HARBOR_ADMIN_PASS must be set by the runner}"
           BASE="$HARBOR_API_BASE/v2/$PC_NAME/pause"
@@ -96,7 +96,7 @@ spec:
         - name: PC_NAME
           value: ($pcName)
         content: |
-          set -euo pipefail
+          set -eu
           : "${HARBOR_API_BASE:?HARBOR_API_BASE must be set by the runner}"
           : "${HARBOR_ADMIN_PASS:?HARBOR_ADMIN_PASS must be set by the runner}"
           # Harbor registers the repo a moment after blobs are served.
@@ -126,7 +126,7 @@ spec:
         - name: PC_NAME
           value: ($pcName)
         content: |
-          set -euo pipefail
+          set -eu
           : "${HARBOR_API_BASE:?HARBOR_API_BASE must be set by the runner}"
           : "${HARBOR_ADMIN_PASS:?HARBOR_ADMIN_PASS must be set by the runner}"
           regs=$(curl -sk -u "admin:$HARBOR_ADMIN_PASS" --fail \
