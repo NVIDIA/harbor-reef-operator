@@ -69,14 +69,20 @@ spec:
           set -eu
           : "${HARBOR_API_BASE:?HARBOR_API_BASE must be set by the runner}"
           : "${HARBOR_ADMIN_PASS:?HARBOR_ADMIN_PASS must be set by the runner}"
-          regs=$(curl -sk -u "admin:$HARBOR_ADMIN_PASS" --fail \
-            "$HARBOR_API_BASE/api/v2.0/registries?name=$PC_NAME" | jq 'length')
-          projs=$(curl -sk -u "admin:$HARBOR_ADMIN_PASS" --fail \
-            "$HARBOR_API_BASE/api/v2.0/projects?name=$PC_NAME" | jq 'length')
-          echo "registries=$regs projects=$projs"
-          if [ "$regs" != "0" ] || [ "$projs" != "0" ]; then
-            echo "FAIL: Harbor state not cleaned up"
-            exit 1
-          fi
+          # The operator's finalizer calls Harbor DELETE synchronously, so
+          # state SHOULD already be clean once kubectl delete returns. But
+          # Harbor's search-indexed list endpoints can lag a second or two
+          # behind the underlying DB write. Retry briefly to absorb that.
+          for i in $(seq 1 5); do
+            regs=$(curl -sk -u "admin:$HARBOR_ADMIN_PASS" --fail \
+              "$HARBOR_API_BASE/api/v2.0/registries?name=$PC_NAME" | jq 'length')
+            projs=$(curl -sk -u "admin:$HARBOR_ADMIN_PASS" --fail \
+              "$HARBOR_API_BASE/api/v2.0/projects?name=$PC_NAME" | jq 'length')
+            echo "attempt $i: registries=$regs projects=$projs"
+            if [ "$regs" = "0" ] && [ "$projs" = "0" ]; then exit 0; fi
+            sleep 2
+          done
+          echo "FAIL: Harbor state not cleaned up after 10s"
+          exit 1
     timeouts:
       delete: 30s
