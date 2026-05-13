@@ -11,7 +11,7 @@ cluster with the operator deployed and a live Harbor instance.
 | Path | What it proves |
 |---|---|
 | `crd-schema/` | The CRD enforces enum + required-field validation at admission time. A drift between the CRD YAML and the Go API types would slip past unit tests but fail here. |
-| `cascade-delete/` | The finalizer correctly empties a cached project before deleting the project and the registry endpoint. Implicitly validates the ClusterRole `update` verb on `proxycaches` and the delete ordering. |
+| `cascade-delete/` | When a `ProxyCache` CR is deleted, the operator removes the Harbor proxy project and the registry endpoint via the finalizer. Implicitly validates the ClusterRole `update` verb on `proxycaches` (finalizer add/remove). The pagination + "empty before delete project" logic in `DeleteAllRepositoriesInProject` is covered by `pkg/harbor/client_test.go`; this e2e deliberately stays out of Harbor proxy-cache populate behaviour. |
 | `secret-watch/` | The controller's `Watches(&Secret{})` wiring fires a reconcile within seconds of a referenced Secret being created -- well below the 30s requeue interval. Unit tests cover the mapping function in isolation but cannot prove the informer is wired up. |
 | `pod-fallback/` | The Pod-fallback controller patches `spec.containers[].image` to the value in `harbor.rewrite/original-upstreams` when a Pod enters `ImagePullBackOff`/`ErrImagePull`. Validates the controller-runtime predicate, the JSON6902 patch syntax, and the per-container idempotency annotation against a real kubelet -- none of which the Go unit suite (fake client, no kubelet) can exercise. |
 
