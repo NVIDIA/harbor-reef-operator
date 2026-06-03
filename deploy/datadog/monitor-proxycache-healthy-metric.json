@@ -1,0 +1,15 @@
+{
+  "name": "[Harbor Reef] ProxyCache {{proxycache.name}} unhealthy on {{kube_cluster_name.name}}",
+  "type": "metric alert",
+  "query": "min(last_10m):min:harbor_reef_operator.proxycache_healthy{*} by {proxycache,kube_cluster_name} < 1",
+  "message": "ProxyCache `{{proxycache.name}}` on `{{kube_cluster_name.name}}` is reporting **unhealthy** (`harbor_reef_operator.proxycache_healthy` < 1).\n\nThis gauge is emitted by harbor-reef-operator (>= 1.2.0) from Harbor's own registry-endpoint health. A value of 0 means Harbor cannot reach or authenticate to the upstream registry for this proxy cache, so pulls through it will fail with `not found`.\n\nRunbook:\n1. `kubectl get hpc -o wide` and `kubectl describe hpc {{proxycache.name}}` for the Healthy condition message.\n2. Check the backing credential secret/Vault value (for nvcr.io the username must be `$oauthtoken`).\n3. The operator re-pushes credentials every reconcile; if still unhealthy after a credential fix, inspect harbor-core logs for the ping error.\n\nteam:platform",
+  "tags": ["integration:harbor", "team:platform", "service:harbor-reef-image-cache", "managed-by:manual"],
+  "options": {
+    "thresholds": { "critical": 1 },
+    "notify_no_data": false,
+    "renotify_interval": 60,
+    "include_tags": true,
+    "new_group_delay": 300
+  },
+  "priority": 2
+}
