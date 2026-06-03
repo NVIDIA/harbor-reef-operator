@@ -12,7 +12,7 @@ import (
 // registry endpoint healthy (1) or not (0). It is the alerting signal for
 // proxy-cache outages such as a rejected upstream credential, which Harbor's
 // own exporter does not expose. Scraped via the controller-runtime metrics
-// endpoint and surfaced in Datadog as harbor_reef_operator.proxycache_healthy.
+// endpoint; alert on proxycache_healthy < 1.
 var proxyCacheHealthy = prometheus.NewGaugeVec(
 	prometheus.GaugeOpts{
 		Name: "proxycache_healthy",

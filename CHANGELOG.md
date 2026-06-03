@@ -18,7 +18,7 @@ PATCH version when you make backwards compatible bug fixes.
 ### Added
 
 - ProxyCache controller now reads Harbor's registry endpoint health (`GET /api/v2.0/registries/{id}`) and surfaces it as a new `status.health` field (`healthy`/`unhealthy`/`unknown`), a `Healthy` status condition, and a `Health` printer column (`kubectl get hpc`).
-- `proxycache_healthy` Prometheus gauge (labels: `proxycache`, `registry_type`) exposing per-cache health for alerting — Harbor's own exporter does not surface proxy-cache endpoint health. Appears in Datadog as `harbor_reef_operator.proxycache_healthy`.
+- `proxycache_healthy` Prometheus gauge (labels: `proxycache`, `registry_type`) exposing per-cache health for alerting — Harbor's own exporter does not surface proxy-cache endpoint health.
 - Periodic 5-minute requeue on successful ProxyCache reconciles so pushed credentials and reported health stay fresh (Harbor health is time-driven, not Kubernetes-event-driven).
 - Newly created registry endpoints are pinged on create so health resolves promptly instead of sitting `unknown` until the next requeue.
 - Chainsaw end-to-end test suite in `test/chainsaw/` covering CRD schema enforcement, cascade-delete with a cached repository, Secret-watch reconcile timing, Pod-fallback patching on `ImagePullBackOff`, and (new) `health-status/` proving the operator reads and surfaces Harbor endpoint health against a real Harbor. Targets seams that the Go unit suite cannot exercise (CRD YAML, RBAC, controller-runtime watch wiring, real Harbor API contract, JSON6902 patch against a live kubelet).
