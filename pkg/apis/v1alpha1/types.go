@@ -16,6 +16,7 @@ import (
 // +kubebuilder:subresource:status
 // +kubebuilder:printcolumn:name="Type",type=string,JSONPath=`.spec.type`
 // +kubebuilder:printcolumn:name="Phase",type=string,JSONPath=`.status.phase`
+// +kubebuilder:printcolumn:name="Health",type=string,JSONPath=`.status.health`
 // +kubebuilder:printcolumn:name="Age",type=date,JSONPath=`.metadata.creationTimestamp`
 type ProxyCache struct {
 	metav1.TypeMeta   `json:",inline"`
@@ -62,8 +63,14 @@ type ECRSpec struct {
 
 // ProxyCacheStatus reports the observed state of the proxy cache in Harbor.
 type ProxyCacheStatus struct {
-	// Phase of the proxy cache: Pending, Ready, or Error.
+	// Phase of the proxy cache: Pending, Ready, or Error. Reflects whether the
+	// operator successfully reconciled the Harbor configuration, independent of
+	// upstream health.
 	Phase string `json:"phase,omitempty"`
+	// Health is the status Harbor reports for the registry endpoint: "healthy",
+	// "unhealthy", or "unknown". Unlike Phase, this reflects whether Harbor can
+	// actually reach and authenticate to the upstream registry.
+	Health string `json:"health,omitempty"`
 	// Harbor registry endpoint ID created for this proxy cache.
 	RegistryID int `json:"registryId,omitempty"`
 	// Whether the Harbor proxy project has been created.

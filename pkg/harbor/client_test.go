@@ -34,9 +34,19 @@ func TestNormalizeRegistryURL(t *testing.T) {
 }
 
 func TestEnsureRegistryEndpoint_AlreadyExists(t *testing.T) {
+	// An existing endpoint must be reconciled (PUT) so rotated credentials and
+	// URL changes reach Harbor, rather than being silently skipped.
+	var updated bool
+	var updatePayload registryUpdatePayload
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == http.MethodGet && r.URL.Path == "/api/v2.0/registries" {
 			json.NewEncoder(w).Encode([]registryEntry{{ID: 42, Name: "proxy-k8s"}})
+			return
+		}
+		if r.Method == http.MethodPut && r.URL.Path == "/api/v2.0/registries/42" {
+			updated = true
+			json.NewDecoder(r.Body).Decode(&updatePayload)
+			w.WriteHeader(http.StatusOK)
 			return
 		}
 		http.Error(w, "unexpected call", http.StatusInternalServerError)
@@ -44,12 +54,89 @@ func TestEnsureRegistryEndpoint_AlreadyExists(t *testing.T) {
 	defer srv.Close()
 
 	hc := NewClient(srv.URL, "admin", "pass")
-	id, err := hc.EnsureRegistryEndpoint("proxy-k8s", "https://registry.k8s.io", "docker-registry", nil, "")
+	id, err := hc.EnsureRegistryEndpoint("proxy-k8s", "https://registry.k8s.io", "docker-registry",
+		&RegistryCredential{Type: "basic", AccessKey: "$oauthtoken", AccessSecret: "rotated-token"}, "")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if id != 42 {
 		t.Errorf("expected registry id=42, got %d", id)
+	}
+	if !updated {
+		t.Fatal("expected existing endpoint to be updated (PUT), but it was not")
+	}
+	if updatePayload.AccessSecret == nil || *updatePayload.AccessSecret != "rotated-token" {
+		t.Errorf("expected rotated access_secret to be pushed, got %v", updatePayload.AccessSecret)
+	}
+	if updatePayload.AccessKey == nil || *updatePayload.AccessKey != "$oauthtoken" {
+		t.Errorf("expected access_key '$oauthtoken' to be pushed, got %v", updatePayload.AccessKey)
+	}
+}
+
+func TestUpdateRegistryEndpoint_PublicLeavesCredentialsUntouched(t *testing.T) {
+	var payload registryUpdatePayload
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodPut && r.URL.Path == "/api/v2.0/registries/7" {
+			json.NewDecoder(r.Body).Decode(&payload)
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+		http.Error(w, "unexpected call", http.StatusInternalServerError)
+	}))
+	defer srv.Close()
+
+	hc := NewClient(srv.URL, "admin", "pass")
+	if err := hc.UpdateRegistryEndpoint(7, "https://registry.k8s.io", nil); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if payload.URL == nil || *payload.URL != "https://registry.k8s.io" {
+		t.Errorf("expected url to be reconciled, got %v", payload.URL)
+	}
+	if payload.CredentialType != nil || payload.AccessKey != nil || payload.AccessSecret != nil {
+		t.Error("expected credential fields to be omitted for a public (nil-cred) update")
+	}
+}
+
+func TestGetRegistryHealth(t *testing.T) {
+	for _, tt := range []struct {
+		name   string
+		status string
+	}{
+		{"healthy", "healthy"},
+		{"unhealthy", "unhealthy"},
+		{"unknown empty", ""},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.Method == http.MethodGet && r.URL.Path == "/api/v2.0/registries/5" {
+					json.NewEncoder(w).Encode(map[string]any{"id": 5, "status": tt.status})
+					return
+				}
+				http.Error(w, "unexpected call", http.StatusInternalServerError)
+			}))
+			defer srv.Close()
+
+			hc := NewClient(srv.URL, "admin", "pass")
+			got, err := hc.GetRegistryHealth(5)
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if got != tt.status {
+				t.Errorf("GetRegistryHealth = %q, want %q", got, tt.status)
+			}
+		})
+	}
+}
+
+func TestGetRegistryHealth_Error(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	defer srv.Close()
+
+	hc := NewClient(srv.URL, "admin", "pass")
+	if _, err := hc.GetRegistryHealth(5); err == nil {
+		t.Fatal("expected error on HTTP 500, got nil")
 	}
 }
 

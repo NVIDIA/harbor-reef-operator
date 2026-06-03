@@ -199,10 +199,23 @@ Credential secrets referenced by `private` and `aws-ecr-private` ProxyCache reso
    - **public**: Create/verify the registry endpoint and a public proxy project.
    - **private**: Read credentials from the referenced secret, create/verify the registry endpoint with basic auth and a private proxy project.
    - **aws-ecr-private**: Read ECR credentials, construct the ECR URL, create/verify the registry endpoint and a private proxy project.
-4. Update the `ProxyCache` status with `phase: Ready`, `registryId`, and `projectCreated: true`.
-5. On error, set `phase: Error` with a descriptive message and requeue after 30 seconds.
+4. Read the endpoint health Harbor reports (`GET /api/v2.0/registries/{id}` → `status`).
+5. Update the `ProxyCache` status with `phase: Ready`, `registryId`, `projectCreated: true`, and `health` (`healthy`/`unhealthy`/`unknown`), then requeue after 5 minutes.
+6. On error, set `phase: Error` with a descriptive message and requeue after 30 seconds.
 
-All Harbor API calls are idempotent -- existing endpoints and projects are detected and skipped.
+The registry endpoint is reconciled to desired state on every pass: if it already exists, the operator issues `PUT /api/v2.0/registries/{id}` to push the current URL and credentials. This is what makes a **rotated credential** propagate to Harbor -- earlier versions detected the existing endpoint and skipped it, so a rotated secret never reached Harbor and the proxy cache stayed `unhealthy`. Proxy-project creation remains create-if-absent.
+
+Because `phase` only reflects whether the operator successfully applied the Harbor configuration, it can read `Ready` while the upstream is actually failing auth. `health` is the separate, runtime signal: it mirrors Harbor's own periodic ping of the upstream, so a rejected or stale credential surfaces as `health: unhealthy` (and a `Healthy` condition set to `False`). The periodic 5-minute requeue keeps both the pushed credentials and the reported health fresh, since Harbor's health is time-driven rather than Kubernetes-event-driven.
+
+### Metrics
+
+The ProxyCache controller registers one gauge on the controller-runtime metrics endpoint:
+
+| Metric | Type | Labels | Description |
+|--------|------|--------|-------------|
+| `proxycache_healthy` | Gauge | `proxycache`, `registry_type` | `1` when Harbor reports the registry endpoint healthy, `0` otherwise (unhealthy, unknown, or reconcile error) |
+
+This is the alerting signal for proxy-cache outages (e.g. a rejected upstream credential), which Harbor's own exporter does not expose. In Datadog it appears as `harbor_reef_operator.proxycache_healthy`.
 
 ### Deletion
 
@@ -226,11 +239,15 @@ kubectl get hpc
 ```
 
 ```
-NAME            TYPE              PHASE   AGE
-proxy-public    public            Ready   5m
-proxy-private   private           Ready   5m
-proxy-ecr       aws-ecr-private   Ready   5m
+NAME            TYPE              PHASE   HEALTH    AGE
+proxy-public    public            Ready   healthy   5m
+proxy-private   private           Ready   healthy   5m
+proxy-ecr       aws-ecr-private   Ready   healthy   5m
 ```
+
+A row showing `PHASE: Ready` but `HEALTH: unhealthy` means the operator applied
+the configuration correctly but Harbor cannot reach or authenticate to the
+upstream -- most often a stale or rejected registry credential.
 
 ## Install via Helm chart
 

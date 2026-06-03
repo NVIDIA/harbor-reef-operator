@@ -57,6 +57,12 @@ func newFakeHarborServer(t *testing.T) *httptest.Server {
 			json.NewEncoder(w).Encode([]registryEntry{{ID: 1, Name: r.URL.Query().Get("name")}})
 		case r.Method == http.MethodPost && r.URL.Path == "/api/v2.0/registries":
 			w.WriteHeader(http.StatusCreated)
+		case r.Method == http.MethodGet && strings.HasPrefix(r.URL.Path, "/api/v2.0/registries/"):
+			// Health read: GET /api/v2.0/registries/{id}
+			json.NewEncoder(w).Encode(map[string]any{"id": 1, "status": "healthy"})
+		case r.Method == http.MethodPut && strings.HasPrefix(r.URL.Path, "/api/v2.0/registries/"):
+			// Credential/URL reconcile on an existing endpoint.
+			w.WriteHeader(http.StatusOK)
 		case r.Method == http.MethodGet && r.URL.Path == "/api/v2.0/projects":
 			json.NewEncoder(w).Encode([]projectEntry{})
 		case r.Method == http.MethodPost && r.URL.Path == "/api/v2.0/projects":
@@ -130,8 +136,8 @@ func TestReconciler_PublicCache(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if result.RequeueAfter != 0 {
-		t.Errorf("expected no requeue, got %v", result.RequeueAfter)
+	if result.RequeueAfter != requeueHealthy {
+		t.Errorf("expected requeue after %v, got %v", requeueHealthy, result.RequeueAfter)
 	}
 
 	var updated v1alpha1.ProxyCache
@@ -140,6 +146,9 @@ func TestReconciler_PublicCache(t *testing.T) {
 	}
 	if updated.Status.Phase != "Ready" {
 		t.Errorf("expected phase=Ready, got %q", updated.Status.Phase)
+	}
+	if updated.Status.Health != "healthy" {
+		t.Errorf("expected health=healthy, got %q", updated.Status.Health)
 	}
 	if updated.Status.RegistryID != 1 {
 		t.Errorf("expected registryId=1, got %d", updated.Status.RegistryID)
@@ -176,8 +185,8 @@ func TestReconciler_PrivateCache(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if result.RequeueAfter != 0 {
-		t.Errorf("expected no requeue, got %v", result.RequeueAfter)
+	if result.RequeueAfter != requeueHealthy {
+		t.Errorf("expected requeue after %v, got %v", requeueHealthy, result.RequeueAfter)
 	}
 
 	var updated v1alpha1.ProxyCache
@@ -186,6 +195,9 @@ func TestReconciler_PrivateCache(t *testing.T) {
 	}
 	if updated.Status.Phase != "Ready" {
 		t.Errorf("expected phase=Ready, got %q", updated.Status.Phase)
+	}
+	if updated.Status.Health != "healthy" {
+		t.Errorf("expected health=healthy, got %q", updated.Status.Health)
 	}
 }
 
@@ -216,8 +228,8 @@ func TestReconciler_ECRCache(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if result.RequeueAfter != 0 {
-		t.Errorf("expected no requeue, got %v", result.RequeueAfter)
+	if result.RequeueAfter != requeueHealthy {
+		t.Errorf("expected requeue after %v, got %v", requeueHealthy, result.RequeueAfter)
 	}
 
 	var updated v1alpha1.ProxyCache
@@ -226,6 +238,86 @@ func TestReconciler_ECRCache(t *testing.T) {
 	}
 	if updated.Status.Phase != "Ready" {
 		t.Errorf("expected phase=Ready, got %q", updated.Status.Phase)
+	}
+	if updated.Status.Health != "healthy" {
+		t.Errorf("expected health=healthy, got %q", updated.Status.Health)
+	}
+}
+
+// TestReconciler_SurfacesUnhealthy proves the operator reflects Harbor's
+// runtime health into the ProxyCache status (the gap where kubectl showed
+// Ready while Harbor's UI showed unhealthy). The endpoint already exists, so
+// reconcile also exercises the credential-update path.
+func TestReconciler_SurfacesUnhealthy(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == "/api/v2.0/registries":
+			json.NewEncoder(w).Encode([]registryEntry{{ID: 21, Name: r.URL.Query().Get("name")}})
+		case r.Method == http.MethodPut && strings.HasPrefix(r.URL.Path, "/api/v2.0/registries/"):
+			w.WriteHeader(http.StatusOK)
+		case r.Method == http.MethodGet && strings.HasPrefix(r.URL.Path, "/api/v2.0/registries/"):
+			json.NewEncoder(w).Encode(map[string]any{"id": 21, "status": "unhealthy"})
+		case r.Method == http.MethodGet && r.URL.Path == "/api/v2.0/projects":
+			json.NewEncoder(w).Encode([]projectEntry{})
+		case r.Method == http.MethodPost && r.URL.Path == "/api/v2.0/projects":
+			w.WriteHeader(http.StatusCreated)
+		default:
+			t.Errorf("unexpected request: %s %s", r.Method, r.URL.Path)
+			http.Error(w, "unexpected", http.StatusInternalServerError)
+		}
+	}))
+	defer srv.Close()
+
+	pc := &v1alpha1.ProxyCache{
+		ObjectMeta: metav1.ObjectMeta{Name: "proxy-nvcr"},
+		Spec: v1alpha1.ProxyCacheSpec{
+			Type: "private", Name: "proxy-nvcr", URL: "https://nvcr.io",
+			Credentials: &v1alpha1.CredentialSpec{SecretName: "ngc-api-secret"},
+		},
+	}
+	adminSecret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{Name: "harbor-admin-password", Namespace: "harbor"},
+		Data:       map[string][]byte{"HARBOR_ADMIN_PASSWORD": []byte("admin123")},
+	}
+	credSecret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{Name: "ngc-api-secret", Namespace: "harbor"},
+		Data:       map[string][]byte{"username": []byte("$oauthtoken"), "password": []byte("tok")},
+	}
+
+	cl := fake.NewClientBuilder().WithScheme(testScheme).WithObjects(pc, adminSecret, credSecret).WithStatusSubresource(pc).Build()
+	r := NewReconciler(cl, srv.URL, "harbor-admin-password", "HARBOR_ADMIN_PASSWORD", "harbor")
+
+	result, err := r.Reconcile(context.Background(), reconcile.Request{NamespacedName: types.NamespacedName{Name: "proxy-nvcr"}})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.RequeueAfter != requeueHealthy {
+		t.Errorf("expected requeue after %v, got %v", requeueHealthy, result.RequeueAfter)
+	}
+
+	var updated v1alpha1.ProxyCache
+	if err := cl.Get(context.Background(), types.NamespacedName{Name: "proxy-nvcr"}, &updated); err != nil {
+		t.Fatalf("failed to get: %v", err)
+	}
+	// Config reconciled successfully...
+	if updated.Status.Phase != "Ready" {
+		t.Errorf("expected phase=Ready, got %q", updated.Status.Phase)
+	}
+	// ...but health reflects Harbor's runtime state.
+	if updated.Status.Health != "unhealthy" {
+		t.Errorf("expected health=unhealthy, got %q", updated.Status.Health)
+	}
+	var found bool
+	for _, c := range updated.Status.Conditions {
+		if c.Type == "Healthy" {
+			found = true
+			if c.Status != metav1.ConditionFalse {
+				t.Errorf("expected Healthy condition False, got %q", c.Status)
+			}
+		}
+	}
+	if !found {
+		t.Error("expected a Healthy condition to be set")
 	}
 }
 
@@ -493,9 +585,9 @@ func TestProxyCachesForSecret(t *testing.T) {
 	r := NewReconciler(cl, "http://h", "harbor-admin-password", "HARBOR_ADMIN_PASSWORD", "harbor")
 
 	cases := []struct {
-		name       string
-		secret     *corev1.Secret
-		wantNames  []string
+		name      string
+		secret    *corev1.Secret
+		wantNames []string
 	}{
 		{
 			name:      "admin secret enqueues all proxycaches",

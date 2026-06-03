@@ -13,10 +13,19 @@ PATCH version when you make backwards compatible bug fixes.
 
 ## [Unreleased]
 
+## [1.2.0] - 2026-06-03
+
 ### Added
 
+- ProxyCache controller now reads Harbor's registry endpoint health (`GET /api/v2.0/registries/{id}`) and surfaces it as a new `status.health` field (`healthy`/`unhealthy`/`unknown`), a `Healthy` status condition, and a `Health` printer column (`kubectl get hpc`).
+- `proxycache_healthy` Prometheus gauge (labels: `proxycache`, `registry_type`) exposing per-cache health for alerting — Harbor's own exporter does not surface proxy-cache endpoint health. Appears in Datadog as `harbor_reef_operator.proxycache_healthy`.
+- Periodic 5-minute requeue on successful ProxyCache reconciles so pushed credentials and reported health stay fresh (Harbor health is time-driven, not Kubernetes-event-driven).
 - Chainsaw end-to-end test suite in `test/chainsaw/` covering CRD schema enforcement, cascade-delete with a cached repository, Secret-watch reconcile timing, and Pod-fallback patching on `ImagePullBackOff`. Targets seams that the Go unit suite cannot exercise (CRD YAML, RBAC, controller-runtime watch wiring, real Harbor API contract, JSON6902 patch against a live kubelet).
 - Top-level `Makefile` with `chainsaw` and `chainsaw-install` targets.
+
+### Fixed
+
+- ProxyCache controller now reconciles existing Harbor registry endpoints to desired state (`PUT /api/v2.0/registries/{id}`) instead of detecting them and skipping. Previously a **rotated upstream credential never reached Harbor** — `EnsureRegistryEndpoint` returned early when the endpoint existed — leaving the proxy cache authenticating with stale credentials and stuck `unhealthy` even after the Secret was updated.
 
 ## [1.1.0] - 2026-05-04
 

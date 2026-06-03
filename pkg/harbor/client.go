@@ -54,6 +54,28 @@ type registryEntry struct {
 	Name string `json:"name"`
 }
 
+// registryUpdatePayload is Harbor's RegistryUpdate body for
+// PUT /api/v2.0/registries/{id}. Fields are pointers so only the values we
+// intend to change are serialized. Unlike the create payload, the credential
+// is flattened into credential_type/access_key/access_secret rather than a
+// nested object.
+type registryUpdatePayload struct {
+	URL            *string `json:"url,omitempty"`
+	CredentialType *string `json:"credential_type,omitempty"`
+	AccessKey      *string `json:"access_key,omitempty"`
+	AccessSecret   *string `json:"access_secret,omitempty"`
+	Insecure       *bool   `json:"insecure,omitempty"`
+}
+
+// registryDetail is the subset of the Harbor registry object returned by
+// GET /api/v2.0/registries/{id}. Status is the health Harbor derives from its
+// periodic ping of the upstream ("healthy", "unhealthy", or "" when unknown).
+type registryDetail struct {
+	ID     int    `json:"id"`
+	Name   string `json:"name"`
+	Status string `json:"status"`
+}
+
 type projectEntry struct {
 	ProjectID int    `json:"project_id"`
 	Name      string `json:"name"`
@@ -86,6 +108,13 @@ func (h *Client) EnsureRegistryEndpoint(name, registryURL, registryType string, 
 		return 0, fmt.Errorf("looking up registry %q: %w", name, err)
 	}
 	if id > 0 {
+		// The endpoint already exists. Reconcile it to the desired URL and
+		// credentials rather than returning early: a rotated secret would
+		// otherwise never reach Harbor, leaving the endpoint authenticating
+		// with stale credentials and stuck in an "unhealthy" state.
+		if err := h.UpdateRegistryEndpoint(id, registryURL, cred); err != nil {
+			return 0, fmt.Errorf("updating registry %q (id=%d): %w", name, id, err)
+		}
 		return id, nil
 	}
 
@@ -123,6 +152,60 @@ func (h *Client) EnsureRegistryEndpoint(name, registryURL, registryType string, 
 		return 0, fmt.Errorf("registry %q not found after creation", name)
 	}
 	return id, nil
+}
+
+// UpdateRegistryEndpoint pushes the desired URL and credentials to an existing
+// Harbor registry endpoint via PUT /api/v2.0/registries/{id}. This is how a
+// rotated credential propagates to Harbor. When cred is nil (public upstreams)
+// only the URL is reconciled; the credential fields are left untouched.
+func (h *Client) UpdateRegistryEndpoint(id int, registryURL string, cred *RegistryCredential) error {
+	insecure := false
+	payload := registryUpdatePayload{
+		URL:      &registryURL,
+		Insecure: &insecure,
+	}
+	if cred != nil {
+		credType := cred.Type
+		accessKey := cred.AccessKey
+		accessSecret := cred.AccessSecret
+		payload.CredentialType = &credType
+		payload.AccessKey = &accessKey
+		payload.AccessSecret = &accessSecret
+	}
+
+	body, err := json.Marshal(payload)
+	if err != nil {
+		return fmt.Errorf("marshalling registry update payload: %w", err)
+	}
+
+	code, respBody, err := h.doRequest(http.MethodPut, fmt.Sprintf("/api/v2.0/registries/%d", id), body)
+	if err != nil {
+		return fmt.Errorf("updating registry id=%d: %w", id, err)
+	}
+	if code != http.StatusOK {
+		return fmt.Errorf("updating registry id=%d: HTTP %d: %s", id, code, string(respBody))
+	}
+	return nil
+}
+
+// GetRegistryHealth returns the health status Harbor reports for a registry
+// endpoint ("healthy", "unhealthy", or "" when Harbor has not yet determined
+// it). Harbor computes this from a periodic ping of the upstream, so a stale or
+// rejected credential surfaces here as "unhealthy".
+func (h *Client) GetRegistryHealth(id int) (string, error) {
+	code, body, err := h.doRequest(http.MethodGet, fmt.Sprintf("/api/v2.0/registries/%d", id), nil)
+	if err != nil {
+		return "", fmt.Errorf("getting registry id=%d: %w", id, err)
+	}
+	if code != http.StatusOK {
+		return "", fmt.Errorf("getting registry id=%d: HTTP %d: %s", id, code, string(body))
+	}
+
+	var detail registryDetail
+	if err := json.Unmarshal(body, &detail); err != nil {
+		return "", fmt.Errorf("decoding registry detail for id=%d: %w", id, err)
+	}
+	return detail.Status, nil
 }
 
 // EnsureProxyProject creates the Harbor proxy-cache project linked to the given

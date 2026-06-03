@@ -24,7 +24,16 @@ import (
 
 const (
 	requeueOnError = 30 * time.Second
+	// requeueHealthy re-runs a successful reconcile on a slow cadence so that
+	// (a) a rotated upstream credential is re-pushed to Harbor and (b) the
+	// reported health stays fresh. Harbor's endpoint health is derived from a
+	// periodic ping and is not driven by Kubernetes events, so without this the
+	// status would only refresh on spec/secret changes.
+	requeueHealthy = 5 * time.Minute
 	finalizerName  = "harbor-reef.nvidia.com/proxycache-finalizer"
+
+	// healthHealthy is the status string Harbor reports for a working endpoint.
+	healthHealthy = "healthy"
 )
 
 // Reconciler watches ProxyCache CRs and ensures the corresponding
@@ -181,8 +190,17 @@ func (r *Reconciler) Reconcile(ctx context.Context, req reconcile.Request) (reco
 		return r.setErrorStatus(ctx, &pc, err.Error())
 	}
 
-	logger.Info("Proxy cache reconciled successfully", "registryId", registryID)
-	return r.setReadyStatus(ctx, &pc, registryID)
+	// The configuration is reconciled; now read the health Harbor derives from
+	// its periodic upstream ping. A failure to read health is not fatal to the
+	// reconcile (the config is correct) — we record it as unknown and continue.
+	health, herr := hc.GetRegistryHealth(registryID)
+	if herr != nil {
+		logger.Error(herr, "Failed to read registry health from Harbor", "registryId", registryID)
+		health = ""
+	}
+
+	logger.Info("Proxy cache reconciled successfully", "registryId", registryID, "health", health)
+	return r.setReadyStatus(ctx, &pc, registryID, health)
 }
 
 func (r *Reconciler) reconcilePublic(_ context.Context, hc *harbor.Client, pc *v1alpha1.ProxyCache) (int, error) {
@@ -289,7 +307,7 @@ func (r *Reconciler) readSecretKey(ctx context.Context, secretName, key string) 
 	return string(val), nil
 }
 
-func (r *Reconciler) setReadyStatus(ctx context.Context, pc *v1alpha1.ProxyCache, registryID int) (reconcile.Result, error) {
+func (r *Reconciler) setReadyStatus(ctx context.Context, pc *v1alpha1.ProxyCache, registryID int, health string) (reconcile.Result, error) {
 	now := metav1.Now()
 	pc.Status.Phase = "Ready"
 	pc.Status.RegistryID = registryID
@@ -297,19 +315,42 @@ func (r *Reconciler) setReadyStatus(ctx context.Context, pc *v1alpha1.ProxyCache
 	pc.Status.Message = ""
 	pc.Status.LastReconciled = &now
 
+	healthy := health == healthHealthy
+	if health == "" {
+		pc.Status.Health = "unknown"
+	} else {
+		pc.Status.Health = health
+	}
+
 	setCondition(pc, "Ready", metav1.ConditionTrue, "Reconciled", "Registry endpoint and proxy project are configured")
+	if healthy {
+		setCondition(pc, "Healthy", metav1.ConditionTrue, "RegistryHealthy", "Harbor reports the registry endpoint as healthy")
+	} else {
+		setCondition(pc, "Healthy", metav1.ConditionFalse, "RegistryUnhealthy",
+			fmt.Sprintf("Harbor reports the registry endpoint as %q (often a rejected or stale upstream credential)", pc.Status.Health))
+	}
+
+	setHealthMetric(pc.Name, pc.Spec.Type, healthy)
 
 	if err := r.client.Status().Update(ctx, pc); err != nil {
 		return reconcile.Result{RequeueAfter: requeueOnError}, err
 	}
-	return reconcile.Result{}, nil
+	// Requeue on a slow cadence to re-push credentials and refresh health even
+	// when nothing in Kubernetes changes.
+	return reconcile.Result{RequeueAfter: requeueHealthy}, nil
 }
 
 func (r *Reconciler) setErrorStatus(ctx context.Context, pc *v1alpha1.ProxyCache, message string) (reconcile.Result, error) {
 	pc.Status.Phase = "Error"
 	pc.Status.Message = message
+	pc.Status.Health = "unknown"
+
+	// The cache is not serving correctly when reconcile fails (e.g. missing
+	// credential secret), so drive the health gauge to 0 for alerting.
+	setHealthMetric(pc.Name, pc.Spec.Type, false)
 
 	setCondition(pc, "Ready", metav1.ConditionFalse, "ReconcileError", message)
+	setCondition(pc, "Healthy", metav1.ConditionFalse, "ReconcileError", message)
 
 	ctrl.Log.Info("ProxyCache reconcile error", "proxycache", pc.Name, "error", message)
 
