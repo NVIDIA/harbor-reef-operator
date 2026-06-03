@@ -56,9 +56,18 @@ type registryEntry struct {
 
 // registryUpdatePayload is Harbor's RegistryUpdate body for
 // PUT /api/v2.0/registries/{id}. Fields are pointers so only the values we
-// intend to change are serialized. Unlike the create payload, the credential
-// is flattened into credential_type/access_key/access_secret rather than a
-// nested object.
+// intend to change are serialized.
+//
+// IMPORTANT: the credential here is FLAT (credential_type/access_key/
+// access_secret), which is intentional and required. Harbor's RegistryUpdate
+// model differs from the create Registry model: create nests credentials under
+// a `credential` object, update flattens them as top-level fields. Do not
+// "align" this with registryPayload by nesting under `credential` — Harbor
+// silently ignores the unknown nested key on update, the PUT still returns 200,
+// and the rotated credential never lands (the exact stale-credential bug this
+// reconcile path exists to fix). Verified against the Harbor v2.0 swagger
+// (RegistryUpdate) and empirically against live Harbor (flat PUT flips a
+// 401/unhealthy proxy cache back to healthy).
 type registryUpdatePayload struct {
 	URL            *string `json:"url,omitempty"`
 	CredentialType *string `json:"credential_type,omitempty"`
@@ -165,6 +174,10 @@ func (h *Client) EnsureRegistryEndpoint(name, registryURL, registryType string, 
 	if id == 0 {
 		return 0, fmt.Errorf("registry %q not found after creation", name)
 	}
+	// Nudge Harbor to evaluate health now so a freshly created endpoint reports
+	// healthy promptly rather than sitting "unknown" until the next ping cycle
+	// (best-effort).
+	_ = h.PingRegistry(id)
 	return id, nil
 }
 

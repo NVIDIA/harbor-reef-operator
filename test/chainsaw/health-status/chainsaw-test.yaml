@@ -1,0 +1,52 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+apiVersion: chainsaw.kyverno.io/v1alpha1
+kind: Test
+metadata:
+  name: health-status
+spec:
+  description: |
+    Verifies that the operator reads Harbor's registry-endpoint health
+    (GET /api/v2.0/registries/{id}) and surfaces it on the ProxyCache status
+    (status.health + the Health printer column) against a real Harbor.
+
+    Why this needs an e2e: the Go unit tests stub Harbor with the same structs
+    the client uses to encode/decode, so they cannot prove the health read --
+    or the credential PUT/ping wire format -- actually matches Harbor's v2.0
+    API. A drift between our request/response shapes and Harbor's real schema
+    would pass unit tests and fail here. This suite closes that gap for the
+    read-and-surface path; it deliberately uses a public upstream
+    (registry.k8s.io) that needs no credentials and pings healthy, so it does
+    not depend on any registry secret being present in CI.
+
+    Test shape:
+      1. Create a public ProxyCache pointing at registry.k8s.io.
+      2. Assert it reaches phase=Ready AND health=healthy. Reaching
+         health=healthy (not just Ready) proves the operator performed the
+         Harbor health read and mapped a real "healthy" status onto the CR --
+         the seam this change adds. The operator pings the endpoint on create,
+         so health resolves without waiting for the 5-minute requeue.
+
+    Concurrency: $namespace is unique per run, so ProxyCache and Harbor
+    project names will not collide between parallel CI pipelines.
+  bindings:
+  - name: pcName
+    value: (join('-', ['chainsaw-health', $namespace]))
+  steps:
+  - name: create-and-assert-healthy
+    description: Create a public ProxyCache and wait for status.health=healthy.
+    try:
+    - apply:
+        file: proxycache.yaml
+    - assert:
+        # Generous timeout: covers Harbor's create + the operator's ping and
+        # health read. Health should resolve well within this window.
+        timeout: 90s
+        file: proxycache-healthy.yaml
+    cleanup:
+    - delete:
+        ref:
+          apiVersion: harbor-reef.nvidia.com/v1alpha1
+          kind: ProxyCache
+          name: ($pcName)

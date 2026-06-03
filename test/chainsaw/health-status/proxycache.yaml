@@ -1,0 +1,15 @@
+# SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
+apiVersion: harbor-reef.nvidia.com/v1alpha1
+kind: ProxyCache
+metadata:
+  name: ($pcName)
+spec:
+  # Public, anonymously-pullable upstream so the endpoint can become healthy
+  # without any credential. This isolates the behaviour under test (the
+  # operator reading and surfacing Harbor's endpoint health) from credential
+  # handling.
+  type: public
+  name: ($pcName)
+  url: https://registry.k8s.io

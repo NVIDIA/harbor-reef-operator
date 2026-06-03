@@ -51,20 +51,22 @@ func newFakeHarborServer(t *testing.T) *httptest.Server {
 		switch {
 		case r.Method == http.MethodGet && r.URL.Path == "/api/v2.0/registries":
 			if callCount[key] == 1 {
-				json.NewEncoder(w).Encode([]registryEntry{})
+				_ = json.NewEncoder(w).Encode([]registryEntry{})
 				return
 			}
-			json.NewEncoder(w).Encode([]registryEntry{{ID: 1, Name: r.URL.Query().Get("name")}})
+			_ = json.NewEncoder(w).Encode([]registryEntry{{ID: 1, Name: r.URL.Query().Get("name")}})
 		case r.Method == http.MethodPost && r.URL.Path == "/api/v2.0/registries":
 			w.WriteHeader(http.StatusCreated)
+		case r.Method == http.MethodPost && r.URL.Path == "/api/v2.0/registries/ping":
+			w.WriteHeader(http.StatusOK)
 		case r.Method == http.MethodGet && strings.HasPrefix(r.URL.Path, "/api/v2.0/registries/"):
 			// Health read: GET /api/v2.0/registries/{id}
-			json.NewEncoder(w).Encode(map[string]any{"id": 1, "status": "healthy"})
+			_ = json.NewEncoder(w).Encode(map[string]any{"id": 1, "status": "healthy"})
 		case r.Method == http.MethodPut && strings.HasPrefix(r.URL.Path, "/api/v2.0/registries/"):
 			// Credential/URL reconcile on an existing endpoint.
 			w.WriteHeader(http.StatusOK)
 		case r.Method == http.MethodGet && r.URL.Path == "/api/v2.0/projects":
-			json.NewEncoder(w).Encode([]projectEntry{})
+			_ = json.NewEncoder(w).Encode([]projectEntry{})
 		case r.Method == http.MethodPost && r.URL.Path == "/api/v2.0/projects":
 			w.WriteHeader(http.StatusCreated)
 		default:
@@ -84,7 +86,7 @@ func newFakeHarborServerForDelete(t *testing.T, repos []string, deletedRepos *[]
 	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
 		case r.Method == http.MethodGet && r.URL.Path == "/api/v2.0/registries":
-			json.NewEncoder(w).Encode([]registryEntry{{ID: 42, Name: r.URL.Query().Get("name")}})
+			_ = json.NewEncoder(w).Encode([]registryEntry{{ID: 42, Name: r.URL.Query().Get("name")}})
 		case r.Method == http.MethodGet && strings.HasSuffix(r.URL.Path, "/repositories"):
 			repoListCalls++
 			if repoListCalls == 1 {
@@ -92,10 +94,10 @@ func newFakeHarborServerForDelete(t *testing.T, repos []string, deletedRepos *[]
 				for _, name := range repos {
 					entries = append(entries, map[string]any{"id": 1, "name": name})
 				}
-				json.NewEncoder(w).Encode(entries)
+				_ = json.NewEncoder(w).Encode(entries)
 				return
 			}
-			json.NewEncoder(w).Encode([]map[string]any{})
+			_ = json.NewEncoder(w).Encode([]map[string]any{})
 		case r.Method == http.MethodDelete && strings.Contains(r.URL.Path, "/repositories/"):
 			if deletedRepos != nil {
 				raw := r.URL.RawPath
@@ -252,15 +254,15 @@ func TestReconciler_SurfacesUnhealthy(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
 		case r.Method == http.MethodGet && r.URL.Path == "/api/v2.0/registries":
-			json.NewEncoder(w).Encode([]registryEntry{{ID: 21, Name: r.URL.Query().Get("name")}})
+			_ = json.NewEncoder(w).Encode([]registryEntry{{ID: 21, Name: r.URL.Query().Get("name")}})
 		case r.Method == http.MethodPost && r.URL.Path == "/api/v2.0/registries/ping":
 			w.WriteHeader(http.StatusOK)
 		case r.Method == http.MethodPut && strings.HasPrefix(r.URL.Path, "/api/v2.0/registries/"):
 			w.WriteHeader(http.StatusOK)
 		case r.Method == http.MethodGet && strings.HasPrefix(r.URL.Path, "/api/v2.0/registries/"):
-			json.NewEncoder(w).Encode(map[string]any{"id": 21, "status": "unhealthy"})
+			_ = json.NewEncoder(w).Encode(map[string]any{"id": 21, "status": "unhealthy"})
 		case r.Method == http.MethodGet && r.URL.Path == "/api/v2.0/projects":
-			json.NewEncoder(w).Encode([]projectEntry{})
+			_ = json.NewEncoder(w).Encode([]projectEntry{})
 		case r.Method == http.MethodPost && r.URL.Path == "/api/v2.0/projects":
 			w.WriteHeader(http.StatusCreated)
 		default:
@@ -320,6 +322,70 @@ func TestReconciler_SurfacesUnhealthy(t *testing.T) {
 	}
 	if !found {
 		t.Error("expected a Healthy condition to be set")
+	}
+}
+
+// TestReconciler_HealthUnknownOnReadError proves a transient health-read
+// failure does not get reported as unhealthy or flip the health gauge to 0 —
+// otherwise a brief Harbor API blip would page on-call for a working cache.
+func TestReconciler_HealthUnknownOnReadError(t *testing.T) {
+	listCalls := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == "/api/v2.0/registries":
+			listCalls++
+			if listCalls == 1 {
+				_ = json.NewEncoder(w).Encode([]registryEntry{})
+				return
+			}
+			_ = json.NewEncoder(w).Encode([]registryEntry{{ID: 1, Name: r.URL.Query().Get("name")}})
+		case r.Method == http.MethodPost && r.URL.Path == "/api/v2.0/registries":
+			w.WriteHeader(http.StatusCreated)
+		case r.Method == http.MethodPost && r.URL.Path == "/api/v2.0/registries/ping":
+			w.WriteHeader(http.StatusOK)
+		case r.Method == http.MethodGet && strings.HasPrefix(r.URL.Path, "/api/v2.0/registries/"):
+			// Health read fails transiently.
+			w.WriteHeader(http.StatusInternalServerError)
+		case r.Method == http.MethodGet && r.URL.Path == "/api/v2.0/projects":
+			_ = json.NewEncoder(w).Encode([]projectEntry{})
+		case r.Method == http.MethodPost && r.URL.Path == "/api/v2.0/projects":
+			w.WriteHeader(http.StatusCreated)
+		default:
+			t.Errorf("unexpected request: %s %s", r.Method, r.URL.Path)
+			http.Error(w, "unexpected", http.StatusInternalServerError)
+		}
+	}))
+	defer srv.Close()
+
+	pc := &v1alpha1.ProxyCache{
+		ObjectMeta: metav1.ObjectMeta{Name: "proxy-healthfail"},
+		Spec:       v1alpha1.ProxyCacheSpec{Type: "public", Name: "proxy-healthfail", URL: "https://registry.k8s.io"},
+	}
+	adminSecret := &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{Name: "harbor-admin-password", Namespace: "harbor"},
+		Data:       map[string][]byte{"HARBOR_ADMIN_PASSWORD": []byte("admin123")},
+	}
+	cl := fake.NewClientBuilder().WithScheme(testScheme).WithObjects(pc, adminSecret).WithStatusSubresource(pc).Build()
+	r := NewReconciler(cl, srv.URL, "harbor-admin-password", "HARBOR_ADMIN_PASSWORD", "harbor")
+
+	if _, err := r.Reconcile(context.Background(), reconcile.Request{NamespacedName: types.NamespacedName{Name: "proxy-healthfail"}}); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	var updated v1alpha1.ProxyCache
+	if err := cl.Get(context.Background(), types.NamespacedName{Name: "proxy-healthfail"}, &updated); err != nil {
+		t.Fatalf("failed to get: %v", err)
+	}
+	// Config applied, but health is unknown — not "unhealthy".
+	if updated.Status.Phase != "Ready" {
+		t.Errorf("expected phase=Ready, got %q", updated.Status.Phase)
+	}
+	if updated.Status.Health != "unknown" {
+		t.Errorf("expected health=unknown on read failure, got %q", updated.Status.Health)
+	}
+	// The gauge must not have been touched: deleting a never-set series returns false.
+	if proxyCacheHealthy.DeleteLabelValues("proxy-healthfail", "public") {
+		t.Error("health gauge was flipped on a transient read failure; expected it untouched")
 	}
 }
 

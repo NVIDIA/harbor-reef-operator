@@ -215,7 +215,9 @@ The ProxyCache controller registers one gauge on the controller-runtime metrics 
 
 | Metric | Type | Labels | Description |
 |--------|------|--------|-------------|
-| `proxycache_healthy` | Gauge | `proxycache`, `registry_type` | `1` when Harbor reports the registry endpoint healthy, `0` otherwise (unhealthy, unknown, or reconcile error) |
+| `proxycache_healthy` | Gauge | `proxycache`, `registry_type` | `1` when Harbor reports the endpoint `healthy`, `0` when Harbor reports it `unhealthy` |
+
+The gauge only flips on a **definitive** Harbor reading. An unknown/not-yet-determined status, a transient health-read failure, or a reconcile error leaves the gauge at its previous value (status reports `health: unknown`) so operator-side or Harbor-side blips don't produce spurious `proxycache_healthy < 1` pages. The series is removed when its ProxyCache is deleted.
 
 This is the alerting signal for proxy-cache outages (e.g. a rejected upstream credential), which Harbor's own exporter does not expose. In Datadog it appears as `harbor_reef_operator.proxycache_healthy`.
 

@@ -20,12 +20,15 @@ PATCH version when you make backwards compatible bug fixes.
 - ProxyCache controller now reads Harbor's registry endpoint health (`GET /api/v2.0/registries/{id}`) and surfaces it as a new `status.health` field (`healthy`/`unhealthy`/`unknown`), a `Healthy` status condition, and a `Health` printer column (`kubectl get hpc`).
 - `proxycache_healthy` Prometheus gauge (labels: `proxycache`, `registry_type`) exposing per-cache health for alerting — Harbor's own exporter does not surface proxy-cache endpoint health. Appears in Datadog as `harbor_reef_operator.proxycache_healthy`.
 - Periodic 5-minute requeue on successful ProxyCache reconciles so pushed credentials and reported health stay fresh (Harbor health is time-driven, not Kubernetes-event-driven).
-- Chainsaw end-to-end test suite in `test/chainsaw/` covering CRD schema enforcement, cascade-delete with a cached repository, Secret-watch reconcile timing, and Pod-fallback patching on `ImagePullBackOff`. Targets seams that the Go unit suite cannot exercise (CRD YAML, RBAC, controller-runtime watch wiring, real Harbor API contract, JSON6902 patch against a live kubelet).
+- Newly created registry endpoints are pinged on create so health resolves promptly instead of sitting `unknown` until the next requeue.
+- Chainsaw end-to-end test suite in `test/chainsaw/` covering CRD schema enforcement, cascade-delete with a cached repository, Secret-watch reconcile timing, Pod-fallback patching on `ImagePullBackOff`, and (new) `health-status/` proving the operator reads and surfaces Harbor endpoint health against a real Harbor. Targets seams that the Go unit suite cannot exercise (CRD YAML, RBAC, controller-runtime watch wiring, real Harbor API contract, JSON6902 patch against a live kubelet).
 - Top-level `Makefile` with `chainsaw` and `chainsaw-install` targets.
 
 ### Fixed
 
 - ProxyCache controller now re-pushes credentials to an existing Harbor registry endpoint (`PUT /api/v2.0/registries/{id}`, followed by `POST /api/v2.0/registries/ping`) when Harbor reports it **unhealthy**, then leaves healthy endpoints untouched. Previously a **rotated upstream credential never reached Harbor** — `EnsureRegistryEndpoint` returned early when the endpoint existed — leaving the proxy cache authenticating with stale credentials and stuck `unhealthy` even after the Secret was updated. Writes are health-gated so steady-state reconciles perform no writes.
+- The health gauge now only flips on a definitive Harbor reading: a transient health-read failure (or a not-yet-determined status) is reported as `health: unknown` and leaves the gauge unchanged, instead of driving it to `0` and producing spurious `proxycache_healthy < 1` alerts. Reconcile errors likewise no longer flip the gauge.
+- The `proxycache_healthy` gauge series is deleted when a ProxyCache is removed, so a deleted cache does not linger as a stale timeseries until the operator restarts.
 
 ## [1.1.0] - 2026-05-04
 

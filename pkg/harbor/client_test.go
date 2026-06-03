@@ -39,9 +39,9 @@ func TestEnsureRegistryEndpoint_ExistingHealthy_NoWrite(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
 		case r.Method == http.MethodGet && r.URL.Path == "/api/v2.0/registries":
-			json.NewEncoder(w).Encode([]registryEntry{{ID: 42, Name: "proxy-k8s"}})
+			_ = json.NewEncoder(w).Encode([]registryEntry{{ID: 42, Name: "proxy-k8s"}})
 		case r.Method == http.MethodGet && r.URL.Path == "/api/v2.0/registries/42":
-			json.NewEncoder(w).Encode(map[string]any{"id": 42, "status": "healthy"})
+			_ = json.NewEncoder(w).Encode(map[string]any{"id": 42, "status": "healthy"})
 		case r.Method == http.MethodPut || r.Method == http.MethodPost:
 			wrote = true
 			http.Error(w, "should not write to a healthy endpoint", http.StatusInternalServerError)
@@ -73,12 +73,12 @@ func TestEnsureRegistryEndpoint_ExistingUnhealthy_PushesAndPings(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
 		case r.Method == http.MethodGet && r.URL.Path == "/api/v2.0/registries":
-			json.NewEncoder(w).Encode([]registryEntry{{ID: 42, Name: "proxy-k8s"}})
+			_ = json.NewEncoder(w).Encode([]registryEntry{{ID: 42, Name: "proxy-k8s"}})
 		case r.Method == http.MethodGet && r.URL.Path == "/api/v2.0/registries/42":
-			json.NewEncoder(w).Encode(map[string]any{"id": 42, "status": "unhealthy"})
+			_ = json.NewEncoder(w).Encode(map[string]any{"id": 42, "status": "unhealthy"})
 		case r.Method == http.MethodPut && r.URL.Path == "/api/v2.0/registries/42":
 			updated = true
-			json.NewDecoder(r.Body).Decode(&updatePayload)
+			_ = json.NewDecoder(r.Body).Decode(&updatePayload)
 			w.WriteHeader(http.StatusOK)
 		case r.Method == http.MethodPost && r.URL.Path == "/api/v2.0/registries/ping":
 			pinged = true
@@ -116,7 +116,7 @@ func TestUpdateRegistryEndpoint_PublicLeavesCredentialsUntouched(t *testing.T) {
 	var payload registryUpdatePayload
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == http.MethodPut && r.URL.Path == "/api/v2.0/registries/7" {
-			json.NewDecoder(r.Body).Decode(&payload)
+			_ = json.NewDecoder(r.Body).Decode(&payload)
 			w.WriteHeader(http.StatusOK)
 			return
 		}
@@ -148,7 +148,7 @@ func TestGetRegistryHealth(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				if r.Method == http.MethodGet && r.URL.Path == "/api/v2.0/registries/5" {
-					json.NewEncoder(w).Encode(map[string]any{"id": 5, "status": tt.status})
+					_ = json.NewEncoder(w).Encode(map[string]any{"id": 5, "status": tt.status})
 					return
 				}
 				http.Error(w, "unexpected call", http.StatusInternalServerError)
@@ -185,10 +185,10 @@ func TestEnsureRegistryEndpoint_Creates(t *testing.T) {
 		if r.Method == http.MethodGet && r.URL.Path == "/api/v2.0/registries" {
 			callCount++
 			if callCount == 1 {
-				json.NewEncoder(w).Encode([]registryEntry{})
+				_ = json.NewEncoder(w).Encode([]registryEntry{})
 				return
 			}
-			json.NewEncoder(w).Encode([]registryEntry{{ID: 7, Name: "proxy-private"}})
+			_ = json.NewEncoder(w).Encode([]registryEntry{{ID: 7, Name: "proxy-private"}})
 			return
 		}
 		if r.Method == http.MethodPost && r.URL.Path == "/api/v2.0/registries" {
@@ -216,10 +216,10 @@ func TestEnsureRegistryEndpoint_Conflict(t *testing.T) {
 		if r.Method == http.MethodGet && r.URL.Path == "/api/v2.0/registries" {
 			callCount++
 			if callCount == 1 {
-				json.NewEncoder(w).Encode([]registryEntry{})
+				_ = json.NewEncoder(w).Encode([]registryEntry{})
 				return
 			}
-			json.NewEncoder(w).Encode([]registryEntry{{ID: 3, Name: "proxy-dup"}})
+			_ = json.NewEncoder(w).Encode([]registryEntry{{ID: 3, Name: "proxy-dup"}})
 			return
 		}
 		if r.Method == http.MethodPost && r.URL.Path == "/api/v2.0/registries" {
@@ -243,7 +243,7 @@ func TestEnsureRegistryEndpoint_Conflict(t *testing.T) {
 func TestEnsureRegistryEndpoint_CreateFails(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == http.MethodGet {
-			json.NewEncoder(w).Encode([]registryEntry{})
+			_ = json.NewEncoder(w).Encode([]registryEntry{})
 			return
 		}
 		if r.Method == http.MethodPost {
@@ -264,7 +264,7 @@ func TestEnsureRegistryEndpoint_CreateFails(t *testing.T) {
 func TestEnsureProxyProject_AlreadyExists(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == http.MethodGet && r.URL.Path == "/api/v2.0/projects" {
-			json.NewEncoder(w).Encode([]projectEntry{{ProjectID: 10, Name: "proxy-k8s"}})
+			_ = json.NewEncoder(w).Encode([]projectEntry{{ProjectID: 10, Name: "proxy-k8s"}})
 			return
 		}
 		http.Error(w, "unexpected call", http.StatusInternalServerError)
@@ -282,7 +282,7 @@ func TestEnsureProxyProject_FuzzyMatchIgnored(t *testing.T) {
 	var created bool
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == http.MethodGet && r.URL.Path == "/api/v2.0/projects" {
-			json.NewEncoder(w).Encode([]projectEntry{{ProjectID: 10, Name: "proxy-k8s-extra"}})
+			_ = json.NewEncoder(w).Encode([]projectEntry{{ProjectID: 10, Name: "proxy-k8s-extra"}})
 			return
 		}
 		if r.Method == http.MethodPost && r.URL.Path == "/api/v2.0/projects" {
@@ -308,11 +308,11 @@ func TestEnsureProxyProject_Creates(t *testing.T) {
 	var receivedPayload projectPayload
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == http.MethodGet && r.URL.Path == "/api/v2.0/projects" {
-			json.NewEncoder(w).Encode([]projectEntry{})
+			_ = json.NewEncoder(w).Encode([]projectEntry{})
 			return
 		}
 		if r.Method == http.MethodPost && r.URL.Path == "/api/v2.0/projects" {
-			json.NewDecoder(r.Body).Decode(&receivedPayload)
+			_ = json.NewDecoder(r.Body).Decode(&receivedPayload)
 			w.WriteHeader(http.StatusCreated)
 			return
 		}
@@ -343,14 +343,14 @@ func TestEnsureRegistryEndpoint_WithRegion(t *testing.T) {
 		if r.Method == http.MethodGet {
 			callCount++
 			if callCount == 1 {
-				json.NewEncoder(w).Encode([]registryEntry{})
+				_ = json.NewEncoder(w).Encode([]registryEntry{})
 				return
 			}
-			json.NewEncoder(w).Encode([]registryEntry{{ID: 99, Name: "proxy-ecr"}})
+			_ = json.NewEncoder(w).Encode([]registryEntry{{ID: 99, Name: "proxy-ecr"}})
 			return
 		}
 		if r.Method == http.MethodPost {
-			json.NewDecoder(r.Body).Decode(&receivedPayload)
+			_ = json.NewDecoder(r.Body).Decode(&receivedPayload)
 			w.WriteHeader(http.StatusCreated)
 			return
 		}
@@ -382,13 +382,13 @@ func TestDeleteAllRepositoriesInProject(t *testing.T) {
 		case r.Method == http.MethodGet && r.URL.Path == "/api/v2.0/projects/proxy-gcr/repositories":
 			listCalls++
 			if listCalls == 1 {
-				json.NewEncoder(w).Encode([]repositoryEntry{
+				_ = json.NewEncoder(w).Encode([]repositoryEntry{
 					{ID: 1, Name: "proxy-gcr/google-containers/pause"},
 					{ID: 2, Name: "proxy-gcr/datadoghq/agent"},
 				})
 				return
 			}
-			json.NewEncoder(w).Encode([]repositoryEntry{})
+			_ = json.NewEncoder(w).Encode([]repositoryEntry{})
 		case r.Method == http.MethodDelete && strings.HasPrefix(r.URL.Path, "/api/v2.0/projects/proxy-gcr/repositories/"):
 			// RawPath preserves the on-the-wire %2F encoding that Harbor
 			// requires; r.URL.Path is the decoded form.
@@ -431,7 +431,7 @@ func TestDeleteAllRepositoriesInProject(t *testing.T) {
 func TestDeleteAllRepositoriesInProject_Empty(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == http.MethodGet && strings.HasSuffix(r.URL.Path, "/repositories") {
-			json.NewEncoder(w).Encode([]repositoryEntry{})
+			_ = json.NewEncoder(w).Encode([]repositoryEntry{})
 			return
 		}
 		t.Errorf("unexpected request: %s %s", r.Method, r.URL.Path)

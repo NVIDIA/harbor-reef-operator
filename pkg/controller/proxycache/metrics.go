@@ -34,3 +34,9 @@ func setHealthMetric(name, registryType string, healthy bool) {
 	}
 	proxyCacheHealthy.WithLabelValues(name, registryType).Set(v)
 }
+
+// deleteHealthMetric removes a ProxyCache's gauge series so a deleted resource
+// does not linger as a stale timeseries until the operator restarts.
+func deleteHealthMetric(name, registryType string) {
+	proxyCacheHealthy.DeleteLabelValues(name, registryType)
+}

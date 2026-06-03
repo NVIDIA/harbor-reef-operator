@@ -32,8 +32,13 @@ const (
 	requeueHealthy = 5 * time.Minute
 	finalizerName  = "harbor-reef.nvidia.com/proxycache-finalizer"
 
-	// healthHealthy is the status string Harbor reports for a working endpoint.
-	healthHealthy = "healthy"
+	// healthHealthy / healthUnhealthy are the definitive status strings Harbor
+	// reports for an endpoint. Anything else (including "" when Harbor has not
+	// yet determined health, or when the health read failed) is treated as
+	// unknown and must not flip the health gauge — otherwise a transient Harbor
+	// API blip would page on-call for a cache that is actually fine.
+	healthHealthy   = "healthy"
+	healthUnhealthy = "unhealthy"
 )
 
 // Reconciler watches ProxyCache CRs and ensures the corresponding
@@ -145,6 +150,9 @@ func (r *Reconciler) Reconcile(ctx context.Context, req reconcile.Request) (reco
 					fmt.Errorf("deleting harbor resources for %q: %w", pc.Spec.Name, err)
 			}
 		}
+		// Drop the health gauge series so a deleted ProxyCache does not linger
+		// as a stale timeseries until the operator restarts.
+		deleteHealthMetric(pc.Name, pc.Spec.Type)
 		controllerutil.RemoveFinalizer(&pc, finalizerName)
 		if err := r.client.Update(ctx, &pc); err != nil {
 			return reconcile.Result{}, err
@@ -315,22 +323,28 @@ func (r *Reconciler) setReadyStatus(ctx context.Context, pc *v1alpha1.ProxyCache
 	pc.Status.Message = ""
 	pc.Status.LastReconciled = &now
 
-	healthy := health == healthHealthy
-	if health == "" {
-		pc.Status.Health = "unknown"
-	} else {
-		pc.Status.Health = health
-	}
-
 	setCondition(pc, "Ready", metav1.ConditionTrue, "Reconciled", "Registry endpoint and proxy project are configured")
-	if healthy {
-		setCondition(pc, "Healthy", metav1.ConditionTrue, "RegistryHealthy", "Harbor reports the registry endpoint as healthy")
-	} else {
-		setCondition(pc, "Healthy", metav1.ConditionFalse, "RegistryUnhealthy",
-			fmt.Sprintf("Harbor reports the registry endpoint as %q (often a rejected or stale upstream credential)", pc.Status.Health))
-	}
 
-	setHealthMetric(pc.Name, pc.Spec.Type, healthy)
+	// The health gauge mirrors Harbor's reported endpoint health and only flips
+	// on a definitive reading. An unknown/empty reading (Harbor not yet decided,
+	// or a transient read failure) leaves the gauge at its previous value so it
+	// does not produce spurious "unhealthy" alerts.
+	switch health {
+	case healthHealthy:
+		pc.Status.Health = healthHealthy
+		setCondition(pc, "Healthy", metav1.ConditionTrue, "RegistryHealthy", "Harbor reports the registry endpoint as healthy")
+		setHealthMetric(pc.Name, pc.Spec.Type, true)
+	case healthUnhealthy:
+		pc.Status.Health = healthUnhealthy
+		setCondition(pc, "Healthy", metav1.ConditionFalse, "RegistryUnhealthy",
+			"Harbor reports the registry endpoint as unhealthy (often a rejected or stale upstream credential)")
+		setHealthMetric(pc.Name, pc.Spec.Type, false)
+	default:
+		pc.Status.Health = "unknown"
+		setCondition(pc, "Healthy", metav1.ConditionUnknown, "HealthUnknown",
+			"Harbor health for the registry endpoint is unknown (not yet determined or could not be read)")
+		// gauge intentionally left unchanged
+	}
 
 	if err := r.client.Status().Update(ctx, pc); err != nil {
 		return reconcile.Result{RequeueAfter: requeueOnError}, err
@@ -345,12 +359,13 @@ func (r *Reconciler) setErrorStatus(ctx context.Context, pc *v1alpha1.ProxyCache
 	pc.Status.Message = message
 	pc.Status.Health = "unknown"
 
-	// The cache is not serving correctly when reconcile fails (e.g. missing
-	// credential secret), so drive the health gauge to 0 for alerting.
-	setHealthMetric(pc.Name, pc.Spec.Type, false)
-
+	// A reconcile error (e.g. a transient secret/Harbor read failure) does not
+	// mean Harbor's endpoint is unhealthy — the cache may still be serving from
+	// its existing config. Leave the health gauge untouched so operator-side
+	// hiccups do not page on-call; the Error phase + Ready=False condition carry
+	// that signal instead.
 	setCondition(pc, "Ready", metav1.ConditionFalse, "ReconcileError", message)
-	setCondition(pc, "Healthy", metav1.ConditionFalse, "ReconcileError", message)
+	setCondition(pc, "Healthy", metav1.ConditionUnknown, "ReconcileError", message)
 
 	ctrl.Log.Info("ProxyCache reconcile error", "proxycache", pc.Name, "error", message)
 
