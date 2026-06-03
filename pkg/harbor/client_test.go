@@ -33,23 +33,59 @@ func TestNormalizeRegistryURL(t *testing.T) {
 	}
 }
 
-func TestEnsureRegistryEndpoint_AlreadyExists(t *testing.T) {
-	// An existing endpoint must be reconciled (PUT) so rotated credentials and
-	// URL changes reach Harbor, rather than being silently skipped.
-	var updated bool
+func TestEnsureRegistryEndpoint_ExistingHealthy_NoWrite(t *testing.T) {
+	// A healthy existing endpoint must be left untouched: no PUT, no ping.
+	var wrote bool
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == "/api/v2.0/registries":
+			json.NewEncoder(w).Encode([]registryEntry{{ID: 42, Name: "proxy-k8s"}})
+		case r.Method == http.MethodGet && r.URL.Path == "/api/v2.0/registries/42":
+			json.NewEncoder(w).Encode(map[string]any{"id": 42, "status": "healthy"})
+		case r.Method == http.MethodPut || r.Method == http.MethodPost:
+			wrote = true
+			http.Error(w, "should not write to a healthy endpoint", http.StatusInternalServerError)
+		default:
+			http.Error(w, "unexpected call", http.StatusInternalServerError)
+		}
+	}))
+	defer srv.Close()
+
+	hc := NewClient(srv.URL, "admin", "pass")
+	id, err := hc.EnsureRegistryEndpoint("proxy-k8s", "https://registry.k8s.io", "docker-registry",
+		&RegistryCredential{Type: "basic", AccessKey: "$oauthtoken", AccessSecret: "tok"}, "")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if id != 42 {
+		t.Errorf("expected registry id=42, got %d", id)
+	}
+	if wrote {
+		t.Error("expected no write (PUT/ping) against a healthy existing endpoint")
+	}
+}
+
+func TestEnsureRegistryEndpoint_ExistingUnhealthy_PushesAndPings(t *testing.T) {
+	// An unhealthy existing endpoint must be re-pushed (PUT) so a rotated
+	// credential reaches Harbor, then pinged to refresh health.
+	var updated, pinged bool
 	var updatePayload registryUpdatePayload
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method == http.MethodGet && r.URL.Path == "/api/v2.0/registries" {
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == "/api/v2.0/registries":
 			json.NewEncoder(w).Encode([]registryEntry{{ID: 42, Name: "proxy-k8s"}})
-			return
-		}
-		if r.Method == http.MethodPut && r.URL.Path == "/api/v2.0/registries/42" {
+		case r.Method == http.MethodGet && r.URL.Path == "/api/v2.0/registries/42":
+			json.NewEncoder(w).Encode(map[string]any{"id": 42, "status": "unhealthy"})
+		case r.Method == http.MethodPut && r.URL.Path == "/api/v2.0/registries/42":
 			updated = true
 			json.NewDecoder(r.Body).Decode(&updatePayload)
 			w.WriteHeader(http.StatusOK)
-			return
+		case r.Method == http.MethodPost && r.URL.Path == "/api/v2.0/registries/ping":
+			pinged = true
+			w.WriteHeader(http.StatusOK)
+		default:
+			http.Error(w, "unexpected call", http.StatusInternalServerError)
 		}
-		http.Error(w, "unexpected call", http.StatusInternalServerError)
 	}))
 	defer srv.Close()
 
@@ -63,7 +99,10 @@ func TestEnsureRegistryEndpoint_AlreadyExists(t *testing.T) {
 		t.Errorf("expected registry id=42, got %d", id)
 	}
 	if !updated {
-		t.Fatal("expected existing endpoint to be updated (PUT), but it was not")
+		t.Fatal("expected unhealthy endpoint to be updated (PUT), but it was not")
+	}
+	if !pinged {
+		t.Error("expected a ping after updating an unhealthy endpoint")
 	}
 	if updatePayload.AccessSecret == nil || *updatePayload.AccessSecret != "rotated-token" {
 		t.Errorf("expected rotated access_secret to be pushed, got %v", updatePayload.AccessSecret)

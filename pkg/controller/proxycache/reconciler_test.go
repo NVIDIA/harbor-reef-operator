@@ -253,6 +253,8 @@ func TestReconciler_SurfacesUnhealthy(t *testing.T) {
 		switch {
 		case r.Method == http.MethodGet && r.URL.Path == "/api/v2.0/registries":
 			json.NewEncoder(w).Encode([]registryEntry{{ID: 21, Name: r.URL.Query().Get("name")}})
+		case r.Method == http.MethodPost && r.URL.Path == "/api/v2.0/registries/ping":
+			w.WriteHeader(http.StatusOK)
 		case r.Method == http.MethodPut && strings.HasPrefix(r.URL.Path, "/api/v2.0/registries/"):
 			w.WriteHeader(http.StatusOK)
 		case r.Method == http.MethodGet && strings.HasPrefix(r.URL.Path, "/api/v2.0/registries/"):

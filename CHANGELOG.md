@@ -25,7 +25,7 @@ PATCH version when you make backwards compatible bug fixes.
 
 ### Fixed
 
-- ProxyCache controller now reconciles existing Harbor registry endpoints to desired state (`PUT /api/v2.0/registries/{id}`) instead of detecting them and skipping. Previously a **rotated upstream credential never reached Harbor** — `EnsureRegistryEndpoint` returned early when the endpoint existed — leaving the proxy cache authenticating with stale credentials and stuck `unhealthy` even after the Secret was updated.
+- ProxyCache controller now re-pushes credentials to an existing Harbor registry endpoint (`PUT /api/v2.0/registries/{id}`, followed by `POST /api/v2.0/registries/ping`) when Harbor reports it **unhealthy**, then leaves healthy endpoints untouched. Previously a **rotated upstream credential never reached Harbor** — `EnsureRegistryEndpoint` returned early when the endpoint existed — leaving the proxy cache authenticating with stale credentials and stuck `unhealthy` even after the Secret was updated. Writes are health-gated so steady-state reconciles perform no writes.
 
 ## [1.1.0] - 2026-05-04
 

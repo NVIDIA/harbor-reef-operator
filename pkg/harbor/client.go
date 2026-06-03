@@ -67,6 +67,10 @@ type registryUpdatePayload struct {
 	Insecure       *bool   `json:"insecure,omitempty"`
 }
 
+// registryStatusHealthy is the status string Harbor reports for a registry
+// endpoint whose upstream is reachable and authenticating.
+const registryStatusHealthy = "healthy"
+
 // registryDetail is the subset of the Harbor registry object returned by
 // GET /api/v2.0/registries/{id}. Status is the health Harbor derives from its
 // periodic ping of the upstream ("healthy", "unhealthy", or "" when unknown).
@@ -108,12 +112,22 @@ func (h *Client) EnsureRegistryEndpoint(name, registryURL, registryType string, 
 		return 0, fmt.Errorf("looking up registry %q: %w", name, err)
 	}
 	if id > 0 {
-		// The endpoint already exists. Reconcile it to the desired URL and
-		// credentials rather than returning early: a rotated secret would
-		// otherwise never reach Harbor, leaving the endpoint authenticating
-		// with stale credentials and stuck in an "unhealthy" state.
-		if err := h.UpdateRegistryEndpoint(id, registryURL, cred); err != nil {
-			return 0, fmt.Errorf("updating registry %q (id=%d): %w", name, id, err)
+		// The endpoint already exists. Re-push the URL/credentials only when
+		// Harbor reports it unhealthy — e.g. after a credential rotation that
+		// left Harbor holding a stale secret. A healthy endpoint is left
+		// untouched, so steady-state reconciles perform no writes.
+		health, err := h.GetRegistryHealth(id)
+		if err != nil {
+			return 0, fmt.Errorf("checking health of registry %q (id=%d): %w", name, id, err)
+		}
+		if health != registryStatusHealthy {
+			if err := h.UpdateRegistryEndpoint(id, registryURL, cred); err != nil {
+				return 0, fmt.Errorf("updating registry %q (id=%d): %w", name, id, err)
+			}
+			// Nudge Harbor to re-evaluate health now instead of waiting for its
+			// next scheduled ping (best-effort: the credential is already
+			// pushed, and the reconciler re-reads health regardless).
+			_ = h.PingRegistry(id)
 		}
 		return id, nil
 	}
@@ -206,6 +220,26 @@ func (h *Client) GetRegistryHealth(id int) (string, error) {
 		return "", fmt.Errorf("decoding registry detail for id=%d: %w", id, err)
 	}
 	return detail.Status, nil
+}
+
+// PingRegistry asks Harbor to test connectivity and authentication to an
+// existing registry endpoint (POST /api/v2.0/registries/ping). A 200 means the
+// upstream is reachable and the stored credentials authenticate; the call also
+// refreshes the endpoint's reported health so recovery is reflected promptly
+// after a credential update.
+func (h *Client) PingRegistry(id int) error {
+	body, err := json.Marshal(map[string]int{"id": id})
+	if err != nil {
+		return fmt.Errorf("marshalling ping payload: %w", err)
+	}
+	code, respBody, err := h.doRequest(http.MethodPost, "/api/v2.0/registries/ping", body)
+	if err != nil {
+		return fmt.Errorf("pinging registry id=%d: %w", id, err)
+	}
+	if code != http.StatusOK {
+		return fmt.Errorf("pinging registry id=%d: HTTP %d: %s", id, code, string(respBody))
+	}
+	return nil
 }
 
 // EnsureProxyProject creates the Harbor proxy-cache project linked to the given
