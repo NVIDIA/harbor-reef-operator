@@ -13,6 +13,20 @@ PATCH version when you make backwards compatible bug fixes.
 
 ## [Unreleased]
 
+## [1.2.1] - 2026-07-07
+
+### Added
+
+- `AGENTS.md` at the repo root: contributor/agent guidance covering layout, build & test commands, conventions (SPDX headers, Conventional Commits + DCO), and the operator invariants that are easy to regress.
+
+### Changed
+
+- Version bump to route the operator image to the updated pipeline's new registry location. Realigned the lagging chart `appVersion` and `values.yaml` image `tag` (previously `1.1.0`) to the current operator version.
+
+### Fixed
+
+- `CONTRIBUTING.md` prerequisite corrected to Go 1.24 (matches `go.mod` and the Dockerfile build image); it previously said Go 1.21.
+
 ## [1.2.0] - 2026-06-03
 
 ### Added

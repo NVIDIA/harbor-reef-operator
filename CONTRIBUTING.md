@@ -25,7 +25,7 @@ Thank you for your interest in contributing to harbor-reef-operator! This docume
 
 ### Prerequisites
 
-- Go 1.21 or later
+- Go 1.24 or later
 - Docker
 - Access to a Kubernetes cluster (for testing)
 - kubectl configured for your cluster
