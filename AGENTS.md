@@ -26,7 +26,7 @@ Harbor Reef image caching system. It ships two controllers:
 
 ## Layout
 
-```
+```text
 main.go                             # Manager bootstrap, scheme + controller wiring, env parsing
 pkg/apis/v1alpha1/                  # ProxyCache API types + zz_generated.deepcopy.go (generated)
 pkg/controller/pod/reconciler.go    # Pod fallback controller
@@ -63,7 +63,7 @@ gofmt -l . && go vet ./...           # format check + vet (run before committing
   // SPDX-FileCopyrightText: Copyright (c) 2025-2026 NVIDIA CORPORATION & AFFILIATES. All rights reserved.
   // SPDX-License-Identifier: Apache-2.0
   ```
-  (use `<!-- ... -->` for Markdown/YAML). Copy the form from a sibling file.
+  (use `<!-- ... -->` for Markdown; `# ...` for YAML). Copy the form from a sibling file.
 - **Commits**: recent history uses Conventional Commits with a scope, e.g.
   `fix(proxycache): ...`, `chore: ...`. Contributions require a DCO sign-off
   (`git commit -s`) — see [CONTRIBUTING.md](./CONTRIBUTING.md). Only commit or
